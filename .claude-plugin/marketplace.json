@@ -4,17 +4,38 @@
     "name": "이정윤",
     "email": "solstice@samteon.com"
   },
+  "metadata":{
+    "description": "Samteon Claude Code 플러그인"
+  },
   "plugins": [
     {
       "name": "feature",
       "source": "./plugins/feature",
       "description": "기능 구현",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "이정윤",
         "email": "solstice@samteon.com"
       },
-      "category": "development"
+      "category": "development",
+      "mcpServers": {
+        "context7": {
+          "type": "stdio",
+          "command": "npx",
+          "args": [
+            "-y",
+            "@upstash/context7-mcp"
+          ],
+          "env": {}
+        },
+        "sequential-thinking": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-sequential-thinking"
+          ]
+        }
+      }
     },
     {
       "name": "commit",
