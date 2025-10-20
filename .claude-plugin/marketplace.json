@@ -1,0 +1,31 @@
+{
+  "name": "samteon-claude",
+  "owner": {
+    "name": "이정윤",
+    "email": "solstice@samteon.com"
+  },
+  "plugins": [
+    {
+      "name": "feature",
+      "source": "./plugins/feature",
+      "description": "기능 구현",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samteon.com"
+      },
+      "category": "development"
+    },
+    {
+      "name": "commit",
+      "source": "./plugins/commit",
+      "description": "커밋",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samteon.com"
+      },
+      "category": "git"
+    }
+  ]
+}
