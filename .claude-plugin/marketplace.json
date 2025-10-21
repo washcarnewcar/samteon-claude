@@ -41,7 +41,7 @@
       "name": "commit",
       "source": "./plugins/commit",
       "description": "커밋",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "이정윤",
         "email": "solstice@samteon.com"
