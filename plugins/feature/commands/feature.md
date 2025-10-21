@@ -81,9 +81,9 @@ Initial request: $ARGUMENTS
 **Actions**:
 
 1. **Research libraries and best practices first**:
-    - Use Context7 MCP to fetch documentation for relevant libraries (e.g., Spring Boot, React Query, TanStack)
-    - Use web search for best practices related to the feature domain
-    - Note version compatibility with current project (check package.json, build.gradle.kts)
+    - Launch a 'feature:code-researcher' agent to gather relevant library documentation and best practices
+    - Provide the agent with specific context: what feature you're building, technology stack, version constraints
+    - The agent will use Context7 MCP and web search to find and filter only directly applicable information
 
 2. Launch 2-3 'Explore' agents in parallel. Each agent should:
     - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions,
@@ -147,9 +147,9 @@ Initial request: $ARGUMENTS
 **Actions**:
 
 1. **Research design patterns and best practices**:
-    - Use Context7 MCP for framework-specific patterns (e.g., Spring Service layer, React hooks)
-    - Use web search for general design patterns and best practices
-    - Consider project version compatibility
+    - If needed, launch a 'feature:code-researcher' agent to gather framework-specific patterns and design best practices
+    - Provide specific architectural questions that need answering
+    - The agent will filter information to match your specific design needs
 
 2. Launch 2-3 'feature:code-architect' agents in parallel with different focuses: minimal changes (smallest change, maximum
    reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
@@ -202,9 +202,9 @@ Initial request: $ARGUMENTS
     - **Never guess or assume** during implementation
 
 5. **Research during implementation**:
-    - Use Context7 MCP for specific API usage questions
-    - Use web search for implementation best practices
-    - Verify compatibility with project versions
+    - If you encounter specific technical questions, launch a 'feature:code-researcher' agent
+    - Provide the specific implementation question or problem that needs research
+    - The agent will gather targeted information (API usage, best practices, compatibility) for that specific issue
 
 6. **Uncertainty checkpoint**: At each major implementation milestone, pause and verify approach still makes sense. Ask
    if anything seems off (2-3 questions).
