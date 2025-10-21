@@ -8,6 +8,8 @@ identify and ask about all underspecified details, design elegant architectures,
 - **Question first, assume never**: When in doubt, always ask. This applies to ALL phases - discovery, exploration,
   design, implementation, and review. Never make assumptions about requirements, design choices, or implementation
   details.
+- **NEVER use AskUserQuestion tool**: ALWAYS ask questions using normal text responses. NEVER use the AskUserQuestion
+  tool as it causes bugs. Present questions in clear, numbered format in your text response and wait for user's reply.
 - **Iterative clarification**: After receiving answers, use reasoning to identify follow-up questions. If the answer is
   ambiguous, reveals new uncertainties, or conflicts with other requirements, ask again immediately.
 - **Research before deciding**: Use Context7 MCP for library documentation and web search for best practices. Do this
@@ -24,6 +26,21 @@ identify and ask about all underspecified details, design elegant architectures,
 ---
 
 ## Question Protocol
+
+**CRITICAL - How to Communicate Questions**:
+
+- **ALWAYS ask questions using normal text responses**
+- **NEVER use the AskUserQuestion tool** - it causes bugs
+- Present questions in clear, numbered format in your text response
+- Wait for user's text response before proceeding
+- Example format:
+  ```
+  다음 사항들을 확인하고 싶습니다:
+
+  1. [첫 번째 질문]
+  2. [두 번째 질문]
+  3. [세 번째 질문]
+  ```
 
 **How to Ask Questions**: Use a staged approach with 2-3 high-priority questions at a time.
 
@@ -68,12 +85,12 @@ Initial request: $ARGUMENTS
 **Actions**:
 
 1. Create todo list with all phases
-2. If feature unclear, ask user for (2-3 questions at a time):
+2. If feature unclear, ask user for (2-3 questions at a time) **using normal text responses, NOT AskUserQuestion tool**:
     - What problem are they solving?
     - What should the feature do?
     - Any constraints or requirements?
 3. Summarize understanding and confirm with user
-4. **Uncertainty checkpoint**: Any ambiguities? Ask before proceeding.
+4. **Uncertainty checkpoint**: Any ambiguities? Ask before proceeding **using normal text responses**.
 
 ---
 
@@ -120,7 +137,8 @@ Initial request: $ARGUMENTS
 
 4. Present comprehensive summary of findings and patterns discovered
 
-5. **Uncertainty checkpoint**: Found conflicting patterns? Unclear conventions? Ask user (2-3 questions).
+5. **Uncertainty checkpoint**: Found conflicting patterns? Unclear conventions? Ask user (2-3 questions) **using normal
+   text responses, NOT AskUserQuestion tool**.
 
 ---
 
@@ -137,9 +155,10 @@ Initial request: $ARGUMENTS
 2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design
    preferences, backward compatibility, performance needs
 
-3. **Present 2-3 most critical questions first** in a clear, organized format
+3. **Present 2-3 most critical questions first** in a clear, organized format **using normal text responses, NOT
+   AskUserQuestion tool**
 
-4. **Wait for answers, then apply re-questioning protocol**:
+4. **Wait for answers, then apply re-questioning protocol** (always use normal text responses):
     - Analyze each answer carefully
     - If answer is ambiguous: "You mentioned X, but does that mean Y or Z?"
     - If answer reveals new issues: "That makes sense, but what about [new concern]?"
@@ -186,15 +205,16 @@ Initial request: $ARGUMENTS
 3. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large
    feature, urgency, complexity, team context)
 
-4. Present to user (2-3 questions):
+4. Present to user **using normal text responses, NOT AskUserQuestion tool** (2-3 questions):
     - Brief summary of each approach
     - Trade-offs comparison
     - **Your recommendation with reasoning**
     - Concrete implementation differences
 
-5. **Ask user which approach they prefer**
+5. **Ask user which approach they prefer** (using normal text responses)
 
-6. **Uncertainty checkpoint**: If user's choice raises new questions, ask immediately (2-3 questions).
+6. **Uncertainty checkpoint**: If user's choice raises new questions, ask immediately (2-3 questions) **using normal
+   text responses**.
 
 ---
 
@@ -226,7 +246,7 @@ Initial request: $ARGUMENTS
     - **Report to user** with:
         - What you discovered
         - Why it's uncertain
-        - 2-3 questions about how to proceed
+        - 2-3 questions about how to proceed **using normal text responses, NOT AskUserQuestion tool**
     - **Wait for guidance** before continuing
     - **Never guess or assume** during implementation
 
@@ -246,7 +266,7 @@ Initial request: $ARGUMENTS
     - If agents disagree, investigate further or ask user for guidance
 
 6. **Uncertainty checkpoint**: At each major implementation milestone, pause and verify approach still makes sense. Ask
-   if anything seems off (2-3 questions).
+   if anything seems off (2-3 questions) **using normal text responses, NOT AskUserQuestion tool**.
 
 ---
 
@@ -261,11 +281,13 @@ Initial request: $ARGUMENTS
 
 2. Consolidate findings and identify highest severity issues that you recommend fixing
 
-3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is) **using normal text
+   responses, NOT AskUserQuestion tool**
 
 4. Address issues based on user decision
 
-5. **Uncertainty checkpoint**: If review reveals design issues or ambiguities, ask user for guidance (2-3 questions).
+5. **Uncertainty checkpoint**: If review reveals design issues or ambiguities, ask user for guidance (2-3 questions) *
+   *using normal text responses, NOT AskUserQuestion tool**.
 
 ---
 
@@ -283,7 +305,8 @@ Initial request: $ARGUMENTS
     - Files modified
     - Suggested next steps
 
-3. **Final questions**: Any remaining concerns or follow-up work needed? Ask user (1-2 questions).
+3. **Final questions**: Any remaining concerns or follow-up work needed? Ask user (1-2 questions) **using normal text
+   responses, NOT AskUserQuestion tool**.
 
 ---
 
