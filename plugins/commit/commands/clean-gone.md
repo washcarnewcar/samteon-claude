@@ -4,7 +4,8 @@ description: Cleans up all git branches marked as [gone] (branches that have bee
 
 ## Your Task
 
-You need to execute the following bash commands to clean up stale local branches that have been deleted from the remote repository.
+You need to execute the following bash commands to clean up stale local branches that have been deleted from the remote
+repository.
 
 ## Commands to Execute
 
@@ -13,7 +14,7 @@ You need to execute the following bash commands to clean up stale local branches
    ```bash
    git branch -v
    ```
-   
+
    Note: Branches with a '+' prefix have associated worktrees and must have their worktrees removed before deletion.
 
 2. **Next, identify worktrees that need to be removed for [gone] branches**

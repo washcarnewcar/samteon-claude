@@ -12,6 +12,9 @@ identify and ask about all underspecified details, design elegant architectures,
   ambiguous, reveals new uncertainties, or conflicts with other requirements, ask again immediately.
 - **Research before deciding**: Use Context7 MCP for library documentation and web search for best practices. Do this
   both during architecture design AND implementation.
+- **Cross-verify with parallel agents**: When researching, always launch 2-3 code-researcher agents in parallel with
+  different focuses. Compare their findings to identify consensus points and conflicts. Prioritize information that
+  multiple agents independently discovered. This provides higher confidence and catches errors or outdated information.
 - **Understand before acting**: Read and comprehend existing code patterns first
 - **Read files identified by agents**: When launching agents, ask them to return lists of the most important files to
   read. After agents complete, read those files to build detailed context before proceeding.
@@ -81,9 +84,24 @@ Initial request: $ARGUMENTS
 **Actions**:
 
 1. **Research libraries and best practices first**:
-    - Launch a 'feature:code-researcher' agent to gather relevant library documentation and best practices
-    - Provide the agent with specific context: what feature you're building, technology stack, version constraints
-    - The agent will use Context7 MCP and web search to find and filter only directly applicable information
+    - **Launch 2-3 'feature:code-researcher' agents in parallel** with different research focuses
+    - Each agent should approach the research from a different angle to ensure comprehensive coverage and
+      cross-verification
+    - Provide each agent with specific context: what feature you're building, technology stack, version constraints
+    - Each agent will use Context7 MCP and web search independently to find and filter only directly applicable
+      information
+
+   **Example research focuses**:
+    - Agent 1: Focus on official documentation and API references
+    - Agent 2: Focus on best practices, design patterns, and real-world examples
+    - Agent 3: Focus on common pitfalls, anti-patterns, and compatibility issues
+
+   **Cross-Verification Process**:
+    - After all agents return, compare their findings
+    - Identify consensus points (information confirmed by multiple agents)
+    - Flag discrepancies and conflicts for further investigation
+    - Prioritize information that multiple agents independently discovered
+    - If agents provide conflicting information, perform additional verification or ask user for guidance
 
 2. Launch 2-3 'Explore' agents in parallel. Each agent should:
     - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions,
@@ -147,11 +165,22 @@ Initial request: $ARGUMENTS
 **Actions**:
 
 1. **Research design patterns and best practices**:
-    - If needed, launch a 'feature:code-researcher' agent to gather framework-specific patterns and design best practices
+    - If needed, **launch 2-3 'feature:code-researcher' agents in parallel** with different architectural focuses
+    - Each agent should approach the design research from a different perspective
     - Provide specific architectural questions that need answering
-    - The agent will filter information to match your specific design needs
 
-2. Launch 2-3 'feature:code-architect' agents in parallel with different focuses: minimal changes (smallest change, maximum
+   **Example architectural research focuses**:
+    - Agent 1: Research minimal-change patterns (incremental improvements, backward compatibility)
+    - Agent 2: Research clean architecture patterns (SOLID principles, domain-driven design)
+    - Agent 3: Research pragmatic patterns (proven solutions, industry standards)
+
+   **Cross-Verification**:
+    - Compare design recommendations from all agents
+    - Identify patterns recommended by multiple agents (higher confidence)
+    - Note trade-offs highlighted across different perspectives
+
+2. Launch 2-3 'feature:code-architect' agents in parallel with different focuses: minimal changes (smallest change,
+   maximum
    reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
 
 3. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large
@@ -202,9 +231,19 @@ Initial request: $ARGUMENTS
     - **Never guess or assume** during implementation
 
 5. **Research during implementation**:
-    - If you encounter specific technical questions, launch a 'feature:code-researcher' agent
+    - If you encounter specific technical questions, **launch 2-3 'feature:code-researcher' agents in parallel**
+    - Each agent should investigate the same problem from different angles
     - Provide the specific implementation question or problem that needs research
-    - The agent will gather targeted information (API usage, best practices, compatibility) for that specific issue
+
+   **Example implementation research focuses**:
+    - Agent 1: Focus on official API documentation and usage examples
+    - Agent 2: Focus on community best practices and proven solutions
+    - Agent 3: Focus on edge cases, error handling, and potential issues
+
+   **Cross-Verification**:
+    - Compare solutions from all agents
+    - Use consensus solutions with higher confidence
+    - If agents disagree, investigate further or ask user for guidance
 
 6. **Uncertainty checkpoint**: At each major implementation milestone, pause and verify approach still makes sense. Ask
    if anything seems off (2-3 questions).
