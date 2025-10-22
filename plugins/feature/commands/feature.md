@@ -34,7 +34,7 @@ These are the ONLY critical rules. Everything else is guidance.
 - After Phase 1: Wait for user confirmation
 - After Phase 2: Wait for user response
 - After Phase 3: Wait for user's architecture choice
-- After Phase 4: Wait for user response
+- After Phase 4: Automatically proceed to Phase 5
 - After Phase 5: Wait for user's decision on fixes
 - After Phase 6: End of workflow
 
@@ -291,11 +291,9 @@ WAIT for user's architecture choice.
 
 6. **Present summary** when implementation is complete
 
-**User confirmation (required)**:
+**Automatic transition**:
 
-Present implementation summary and ask: "구현이 완료되었습니다. 코드 리뷰를 진행할까요?"
-
-WAIT for user response before Phase 5.
+Present implementation summary and automatically proceed to Phase 5 (Review Quality).
 
 ---
 
