@@ -40,11 +40,11 @@ These are the ONLY critical rules. Everything else is guidance.
 
 **RULE 4: Use agents as required**
 
-- **code-researcher agents**: Search external resources (documentation, articles, examples) when dealing with unfamiliar
+- **feature:code-researcher agents**: Search external resources (documentation, articles, examples) when dealing with unfamiliar
   libraries or APIs
 - **Explore agents** (required): Understand codebase structure and patterns
-- **code-architect agents** (required): Design multiple implementation approaches based on codebase
-- **code-reviewer agents** (required): Review code quality and correctness
+- **feature:code-architect agents** (required): Design multiple implementation approaches based on codebase
+- **feature:code-reviewer agents** (required): Review code quality and correctness
 
 ---
 
@@ -111,7 +111,7 @@ Task: "Find features similar to user authentication"
 **Agent count guidance**:
 
 - Most agents: Launch 2-3 in parallel (2 minimum, 3 recommended for thoroughness)
-- code-reviewer agents: Launch exactly 3 (one for each review focus: simplicity, correctness, conventions)
+- feature:code-reviewer agents: Launch exactly 3 (one for each review focus: simplicity, correctness, conventions)
 - You can launch more if the task is very complex, but 2-3 is usually optimal
 - Always launch in parallel, not sequentially
 
@@ -164,7 +164,7 @@ WAIT for user confirmation before Phase 2.
 **Actions**:
 
 1. **Research external dependencies** (if feature involves external libraries or unfamiliar APIs):
-    - Launch 2-3 code-researcher agents in parallel to search external resources:
+    - Launch 2-3 feature:code-researcher agents in parallel to search external resources:
         - Agent 1: Official documentation and API references
         - Agent 2: Best practices and real-world examples
         - Agent 3 (optional): Common pitfalls and compatibility issues
@@ -212,15 +212,15 @@ WAIT for user response before Phase 3.
 **Actions**:
 
 1. **Research design patterns** (if you need external references for architectural decisions):
-    - code-researcher agents search external resources (articles, documentation, design pattern examples)
-    - Launch 2-3 code-researcher agents with architectural focuses:
+    - feature:code-researcher agents search external resources (articles, documentation, design pattern examples)
+    - Launch 2-3 feature:code-researcher agents with architectural focuses:
         - Agent 1: Minimal-change patterns (backward compatibility)
         - Agent 2: Clean architecture patterns (SOLID, maintainability)
         - Agent 3 (optional): Pragmatic patterns (proven solutions)
 
 2. **Design multiple approaches** (required):
-    - code-architect agents design approaches based on your codebase understanding
-    - Launch 2-3 code-architect agents in parallel:
+    - feature:code-architect agents design approaches based on your codebase understanding
+    - Launch 2-3 feature:code-architect agents in parallel:
         - Agent 1: Minimal changes (smallest change, maximum reuse)
         - Agent 2: Clean architecture (maintainability, elegant abstractions)
         - Agent 3 (optional): Pragmatic balance (speed + quality)
@@ -283,7 +283,7 @@ WAIT for user's architecture choice.
     - Performance or security concerns
 
 5. **Research during implementation** (if you encounter specific technical questions):
-    - Launch 2-3 code-researcher agents to search external resources:
+    - Launch 2-3 feature:code-researcher agents to search external resources:
         - Agent 1: Official API documentation and usage examples
         - Agent 2: Community best practices and proven solutions
         - Agent 3 (optional): Edge cases, error handling, potential issues
@@ -306,7 +306,7 @@ WAIT for user response before Phase 5.
 **Actions**:
 
 1. **Review the code** (required):
-    - Launch 3 code-reviewer agents in parallel:
+    - Launch 3 feature:code-reviewer agents in parallel:
         - Agent 1: Simplicity/DRY/elegance
         - Agent 2: Bugs/functional correctness
         - Agent 3: Project conventions/abstractions
