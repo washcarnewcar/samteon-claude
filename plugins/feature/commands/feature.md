@@ -97,8 +97,9 @@ Task: "Find features similar to user authentication"
 - Ask user if agents provide conflicting information
 
 **Agent count guidance**:
-- "at least 2 agents": Launch 2 or more (2-3 recommended)
-- You can launch more if the task is complex
+- Most agents: Launch 2-3 in parallel (2 minimum, 3 recommended for thoroughness)
+- code-reviewer agents: Launch exactly 3 (one for each review focus: simplicity, correctness, conventions)
+- You can launch more if the task is very complex, but 2-3 is usually optimal
 - Always launch in parallel, not sequentially
 
 **TodoWrite usage**:
@@ -149,7 +150,7 @@ WAIT for user confirmation before Phase 2.
 **Actions**:
 
 1. **Research external dependencies** (if feature involves external libraries or unfamiliar APIs):
-   - Launch at least 2 code-researcher agents in parallel to search external resources:
+   - Launch 2-3 code-researcher agents in parallel to search external resources:
      - Agent 1: Official documentation and API references
      - Agent 2: Best practices and real-world examples
      - Agent 3 (optional): Common pitfalls and compatibility issues
@@ -157,7 +158,7 @@ WAIT for user confirmation before Phase 2.
    - Prioritize consensus information
 
 2. **Explore the codebase** (required for all features):
-   - Launch at least 2 Explore agents in parallel with different focuses:
+   - Launch 2-3 Explore agents in parallel with different focuses:
      - Agent 1: "Find features similar to [feature] and trace their implementation"
      - Agent 2: "Map the architecture and abstractions for [area]"
      - Agent 3 (optional): "Identify patterns, conventions, and extension points for [feature]"
@@ -198,14 +199,14 @@ WAIT for user response before Phase 3.
 
 1. **Research design patterns** (if you need external references for architectural decisions):
    - code-researcher agents search external resources (articles, documentation, design pattern examples)
-   - Launch at least 2 code-researcher agents with architectural focuses:
+   - Launch 2-3 code-researcher agents with architectural focuses:
      - Agent 1: Minimal-change patterns (backward compatibility)
      - Agent 2: Clean architecture patterns (SOLID, maintainability)
      - Agent 3 (optional): Pragmatic patterns (proven solutions)
 
 2. **Design multiple approaches** (required):
    - code-architect agents design approaches based on your codebase understanding
-   - Launch at least 2 code-architect agents in parallel:
+   - Launch 2-3 code-architect agents in parallel:
      - Agent 1: Minimal changes (smallest change, maximum reuse)
      - Agent 2: Clean architecture (maintainability, elegant abstractions)
      - Agent 3 (optional): Pragmatic balance (speed + quality)
@@ -220,13 +221,13 @@ WAIT for user response before Phase 3.
    - Your recommendation with reasoning
    - Concrete implementation differences
 
-5. If the chosen approach raises new questions, ask user
-
 **User choice (required)**:
 
 CRITICAL: Ask user "어느 접근 방식으로 진행할까요?"
 
-WAIT for user's architecture choice before Phase 4.
+WAIT for user's architecture choice.
+
+5. **After user chooses**: If the chosen approach raises new questions, ask user before proceeding to Phase 4
 
 ---
 
@@ -236,7 +237,10 @@ WAIT for user's architecture choice before Phase 4.
 
 **Actions**:
 
-1. **Wait for explicit user approval** before writing any code
+1. **Confirm implementation start**:
+   - User already chose architecture in Phase 3
+   - Now explicitly confirm: "선택하신 방식으로 구현을 시작해도 될까요?"
+   - WAIT for approval before writing any code
 
 2. **Read all relevant files** identified in previous phases
 
@@ -247,9 +251,16 @@ WAIT for user's architecture choice before Phase 4.
 
 4. **CRITICAL - Handle unexpected situations**:
 
-   **If you encounter ANY unexpected situation, STOP immediately and ask user:**
+   **If you encounter ANY unexpected situation:**
 
-   Examples of unexpected situations:
+   **What to do**:
+   - STOP immediately
+   - Report what you discovered and why it's uncertain
+   - Ask 2-3 questions about how to proceed
+   - **CRITICAL: WAIT for guidance before continuing**
+   - **CRITICAL: Never guess or assume**
+
+   **Examples of unexpected situations**:
    - Unexpected code structure or patterns
    - Ambiguous integration points
    - Missing dependencies or unclear setup
@@ -257,15 +268,8 @@ WAIT for user's architecture choice before Phase 4.
    - Unclear error handling requirements
    - Performance or security concerns
 
-   When this happens:
-   - STOP immediately
-   - Report what you discovered and why it's uncertain
-   - Ask 2-3 questions about how to proceed
-   - **CRITICAL: WAIT for guidance before continuing**
-   - **CRITICAL: Never guess or assume**
-
 5. **Research during implementation** (if you encounter specific technical questions):
-   - Launch at least 2 code-researcher agents to search external resources:
+   - Launch 2-3 code-researcher agents to search external resources:
      - Agent 1: Official API documentation and usage examples
      - Agent 2: Community best practices and proven solutions
      - Agent 3 (optional): Edge cases, error handling, potential issues
@@ -302,7 +306,10 @@ WAIT for user response before Phase 5.
    - Your recommendations
    - Ask: "지금 수정할까요, 나중에 할까요, 아니면 이대로 진행할까요?"
 
-4. Address issues based on user decision
+4. **Address issues** based on user decision:
+   - "지금 수정": Make fixes in Phase 5, then present updated code
+   - "나중에 수정": Note issues in summary, proceed to Phase 6
+   - "이대로 진행": Proceed to Phase 6 as-is
 
 5. If review revealed design issues, ask user for guidance
 
@@ -328,4 +335,4 @@ WAIT for user's decision on how to handle review findings before Phase 6.
 
 3. Ask user: "추가로 작업할 사항이 있나요?"
 
-**End of workflow**: Wait for user's response to close the session or start new work.
+**End of workflow**: Feature development complete. Wait for user's response.
