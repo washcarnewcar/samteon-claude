@@ -30,9 +30,10 @@ identify and ask about all underspecified details, design elegant architectures,
 **CRITICAL - How to Communicate Questions**:
 
 - **ALWAYS ask questions using normal text responses**
-- **NEVER use the AskUserQuestion tool** - it causes bugs
+- **NEVER use the AskUserQuestion tool** - it causes bugs and breaks the workflow
 - Present questions in clear, numbered format in your text response
-- Wait for user's text response before proceeding
+- **WAIT for user's text response before proceeding** - do not continue until you receive an answer
+- This protocol applies to ALL phases and ALL questions
 - Example format:
   ```
   다음 사항들을 확인하고 싶습니다:
@@ -41,6 +42,8 @@ identify and ask about all underspecified details, design elegant architectures,
   2. [두 번째 질문]
   3. [세 번째 질문]
   ```
+
+**REMEMBER**: Throughout all phases below, when you see "ask user" or "present questions", you MUST follow this Question Protocol.
 
 **How to Ask Questions**: Use a staged approach with 2-3 high-priority questions at a time.
 
@@ -78,30 +81,36 @@ identify and ask about all underspecified details, design elegant architectures,
 
 ## Phase 1: Discovery
 
-**Goal**: Understand what needs to be built
+**CRITICAL**: You MUST fully understand what needs to be built before proceeding.
 
 Initial request: $ARGUMENTS
 
-**Actions**:
+**Required Actions**:
 
 1. Create todo list with all phases
-2. If feature unclear, ask user for (2-3 questions at a time) **using normal text responses, NOT AskUserQuestion tool**:
+
+2. **CRITICAL: You MUST ask user clarifying questions** (2-3 questions at a time):
     - What problem are they solving?
     - What should the feature do?
     - Any constraints or requirements?
+    - Continue asking until the feature is fully clear
+
 3. Summarize understanding and confirm with user
-4. **Uncertainty checkpoint**: Any ambiguities? Ask before proceeding **using normal text responses**.
+
+4. **CRITICAL: You MUST review your understanding and identify any ambiguities or unclear aspects before proceeding**
+
+5. **STOP. WAIT FOR USER CONFIRMATION BEFORE PROCEEDING TO PHASE 2.**
 
 ---
 
 ## Phase 2: Codebase Exploration
 
-**Goal**: Understand relevant existing code and patterns at both high and low levels
+**CRITICAL**: You MUST comprehensively understand the existing codebase, patterns, and architecture before designing.
 
-**Actions**:
+**Required Actions**:
 
 1. **Research libraries and best practices first**:
-    - **Launch 2-3 'feature:code-researcher' agents in parallel** with different research focuses
+    - **CRITICAL: You MUST launch 2-3 'feature:code-researcher' agents in parallel** with different research focuses
     - Each agent should approach the research from a different angle to ensure comprehensive coverage and
       cross-verification
     - Provide each agent with specific context: what feature you're building, technology stack, version constraints
@@ -120,7 +129,7 @@ Initial request: $ARGUMENTS
     - Prioritize information that multiple agents independently discovered
     - If agents provide conflicting information, perform additional verification or ask user for guidance
 
-2. Launch 2-3 'Explore' agents in parallel. Each agent should:
+2. **CRITICAL: You MUST launch 2-3 'Explore' agents in parallel**. Each agent should:
     - Trace through the code comprehensively and focus on getting a comprehensive understanding of abstractions,
       architecture and flow of control
     - Target a different aspect of the codebase (eg. similar features, high level understanding, architectural
@@ -133,32 +142,32 @@ Initial request: $ARGUMENTS
     - "Analyze the current implementation of [existing feature/area], tracing through the code comprehensively"
     - "Identify UI patterns, testing approaches, or extension points relevant to [feature]"
 
-3. Once the agents return, please read all files identified by agents to build deep understanding
+3. Once the agents return, **you MUST read all files identified by agents** to build deep understanding
 
 4. Present comprehensive summary of findings and patterns discovered
 
-5. **Uncertainty checkpoint**: Found conflicting patterns? Unclear conventions? Ask user (2-3 questions) **using normal
-   text responses, NOT AskUserQuestion tool**.
+5. **CRITICAL: You MUST review all findings and identify any conflicting patterns or unclear conventions**
+
+6. **If you found any conflicts or uncertainties, you MUST ask the user for clarification**
+
+7. **STOP. WAIT FOR USER RESPONSE BEFORE PROCEEDING TO PHASE 3.**
 
 ---
 
 ## Phase 3: Clarifying Questions
 
-**Goal**: Fill in gaps and resolve all ambiguities before designing
+**CRITICAL**: This is one of the most important phases. DO NOT SKIP. You MUST resolve ALL ambiguities before designing.
 
-**CRITICAL**: This is one of the most important phases. DO NOT SKIP.
-
-**Actions**:
+**Required Actions**:
 
 1. Review the codebase findings, library documentation, and original feature request
 
 2. Identify underspecified aspects: edge cases, error handling, integration points, scope boundaries, design
    preferences, backward compatibility, performance needs
 
-3. **Present 2-3 most critical questions first** in a clear, organized format **using normal text responses, NOT
-   AskUserQuestion tool**
+3. **Present 2-3 most critical questions first** in a clear, organized format
 
-4. **Wait for answers, then apply re-questioning protocol** (always use normal text responses):
+4. **Wait for answers, then apply re-questioning protocol**:
     - Analyze each answer carefully
     - If answer is ambiguous: "You mentioned X, but does that mean Y or Z?"
     - If answer reveals new issues: "That makes sense, but what about [new concern]?"
@@ -167,7 +176,9 @@ Initial request: $ARGUMENTS
 
 5. Move to next set of questions (if any)
 
-6. Only proceed when all uncertainties resolved
+6. Verify all uncertainties have been resolved
+
+7. **STOP. WAIT FOR USER CONFIRMATION BEFORE PROCEEDING TO PHASE 4.**
 
 **Special case**: If the user says "whatever you think is best":
 
@@ -179,12 +190,12 @@ Initial request: $ARGUMENTS
 
 ## Phase 4: Architecture Design
 
-**Goal**: Design multiple implementation approaches with different trade-offs
+**CRITICAL**: You MUST design multiple implementation approaches and get user approval before implementing.
 
-**Actions**:
+**Required Actions**:
 
 1. **Research design patterns and best practices**:
-    - If needed, **launch 2-3 'feature:code-researcher' agents in parallel** with different architectural focuses
+    - If needed, **you MUST launch 2-3 'feature:code-researcher' agents in parallel** with different architectural focuses
     - Each agent should approach the design research from a different perspective
     - Provide specific architectural questions that need answering
 
@@ -198,33 +209,34 @@ Initial request: $ARGUMENTS
     - Identify patterns recommended by multiple agents (higher confidence)
     - Note trade-offs highlighted across different perspectives
 
-2. Launch 2-3 'feature:code-architect' agents in parallel with different focuses: minimal changes (smallest change,
+2. **CRITICAL: You MUST launch 2-3 'feature:code-architect' agents in parallel** with different focuses: minimal changes (smallest change,
    maximum
    reuse), clean architecture (maintainability, elegant abstractions), or pragmatic balance (speed + quality)
 
 3. Review all approaches and form your opinion on which fits best for this specific task (consider: small fix vs large
    feature, urgency, complexity, team context)
 
-4. Present to user **using normal text responses, NOT AskUserQuestion tool** (2-3 questions):
+4. Present to user:
     - Brief summary of each approach
     - Trade-offs comparison
     - **Your recommendation with reasoning**
     - Concrete implementation differences
 
-5. **Ask user which approach they prefer** (using normal text responses)
+5. **CRITICAL: You MUST ask user which approach they prefer and WAIT for their choice**
 
-6. **Uncertainty checkpoint**: If user's choice raises new questions, ask immediately (2-3 questions) **using normal
-   text responses**.
+6. **CRITICAL: You MUST review the chosen approach and identify any new questions or concerns**
+
+7. **If any concerns exist, you MUST ask the user before proceeding**
+
+8. **STOP. WAIT FOR USER APPROVAL BEFORE PROCEEDING TO PHASE 5.**
 
 ---
 
 ## Phase 5: Implementation
 
-**Goal**: Build the feature
+**CRITICAL**: DO NOT START WITHOUT EXPLICIT USER APPROVAL. You MUST wait for confirmation before writing any code.
 
-**DO NOT START WITHOUT USER APPROVAL**
-
-**Actions**:
+**Required Actions**:
 
 1. Wait for explicit user approval
 
@@ -246,12 +258,12 @@ Initial request: $ARGUMENTS
     - **Report to user** with:
         - What you discovered
         - Why it's uncertain
-        - 2-3 questions about how to proceed **using normal text responses, NOT AskUserQuestion tool**
+        - 2-3 questions about how to proceed
     - **Wait for guidance** before continuing
     - **Never guess or assume** during implementation
 
 5. **Research during implementation**:
-    - If you encounter specific technical questions, **launch 2-3 'feature:code-researcher' agents in parallel**
+    - If you encounter specific technical questions, **you MUST launch 2-3 'feature:code-researcher' agents in parallel**
     - Each agent should investigate the same problem from different angles
     - Provide the specific implementation question or problem that needs research
 
@@ -265,37 +277,40 @@ Initial request: $ARGUMENTS
     - Use consensus solutions with higher confidence
     - If agents disagree, investigate further or ask user for guidance
 
-6. **Uncertainty checkpoint**: At each major implementation milestone, pause and verify approach still makes sense. Ask
-   if anything seems off (2-3 questions) **using normal text responses, NOT AskUserQuestion tool**.
+6. At each major implementation milestone, pause and verify approach still makes sense
+
+7. When implementation is complete, present summary of what was implemented
+
+8. **STOP. WAIT FOR USER CONFIRMATION BEFORE PROCEEDING TO PHASE 6.**
 
 ---
 
 ## Phase 6: Quality Review
 
-**Goal**: Ensure code is simple, DRY, elegant, easy to read, and functionally correct
+**CRITICAL**: You MUST review code quality before finalizing. The code must be simple, DRY, elegant, readable, and functionally correct.
 
-**Actions**:
+**Required Actions**:
 
-1. Launch 3 'feature:code-reviewer' agents in parallel with different focuses: simplicity/DRY/elegance, bugs/functional
+1. **CRITICAL: You MUST launch 3 'feature:code-reviewer' agents in parallel** with different focuses: simplicity/DRY/elegance, bugs/functional
    correctness, project conventions/abstractions
 
 2. Consolidate findings and identify highest severity issues that you recommend fixing
 
-3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is) **using normal text
-   responses, NOT AskUserQuestion tool**
+3. **Present findings to user and ask what they want to do** (fix now, fix later, or proceed as-is)
 
 4. Address issues based on user decision
 
-5. **Uncertainty checkpoint**: If review reveals design issues or ambiguities, ask user for guidance (2-3 questions) *
-   *using normal text responses, NOT AskUserQuestion tool**.
+5. Review if any design issues or ambiguities were revealed
+
+6. **STOP. WAIT FOR USER CONFIRMATION BEFORE PROCEEDING TO PHASE 7.**
 
 ---
 
 ## Phase 7: Summary
 
-**Goal**: Document what was accomplished
+**CRITICAL**: You MUST provide a comprehensive summary of what was accomplished.
 
-**Actions**:
+**Required Actions**:
 
 1. Mark all todos complete
 
@@ -305,8 +320,7 @@ Initial request: $ARGUMENTS
     - Files modified
     - Suggested next steps
 
-3. **Final questions**: Any remaining concerns or follow-up work needed? Ask user (1-2 questions) **using normal text
-   responses, NOT AskUserQuestion tool**.
+3. **Ask user if there are any remaining concerns or follow-up work needed** (1-2 questions)
 
 ---
 
