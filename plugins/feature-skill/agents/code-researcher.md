@@ -1,7 +1,7 @@
 ---
-name: feature-skill:code-researcher
+name: code-researcher
 description: Researches libraries, frameworks, and best practices by using web search and Context7 to gather and filter only directly applicable information for the current task
-tools: Glob, Grep, LS, Read, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__plugin_feature_context7__resolve-library-id, mcp__plugin_feature_context7__get-library-docs
+tools: Glob, Grep, LS, Read, WebFetch, WebSearch, mcp__context7__resolve-library-id, mcp__context7__get-library-docs, mcp__plugin_feature_skill_context7__resolve-library-id, mcp__plugin_feature_skill_context7__get-library-docs
 model: haiku
 color: blue
 ---
