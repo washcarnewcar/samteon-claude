@@ -47,6 +47,35 @@
         "email": "solstice@samteon.com"
       },
       "category": "git"
+    },
+    {
+      "name": "feature-skill",
+      "source": "./plugins/feature-skill",
+      "description": "스킬 기반 모듈형 기능 개발 워크플로우",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samteon.com"
+      },
+      "category": "development",
+      "mcpServers": {
+        "context7": {
+          "type": "stdio",
+          "command": "npx",
+          "args": [
+            "-y",
+            "@upstash/context7-mcp"
+          ],
+          "env": {}
+        },
+        "sequential-thinking": {
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-sequential-thinking"
+          ]
+        }
+      }
     }
   ]
 }
