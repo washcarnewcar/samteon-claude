@@ -174,6 +174,8 @@ Rate each issue 0-100:
 - Recommendations
 - Questions to user
 
+Never use AskUserQuestion tool.
+
 ## Self-Check
 
 Before presenting review:

@@ -160,6 +160,8 @@ If chosen approach raises new questions, ask user before proceeding to next phas
 - Recommendations
 - Questions to user
 
+Never use AskUserQuestion tool.
+
 ## Self-Check
 
 Before presenting approaches:

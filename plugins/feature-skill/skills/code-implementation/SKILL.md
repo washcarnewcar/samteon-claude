@@ -163,6 +163,8 @@ After presenting summary, automatically proceed to code-review skill.
 - Progress summaries
 - Completion reports
 
+Never use AskUserQuestion tool.
+
 ## Self-Check During Implementation
 
 Before marking implementation complete:
