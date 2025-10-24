@@ -119,6 +119,8 @@ Wait for user response before this skill completes.
 - Exploration findings
 - Questions to user
 
+Never use AskUserQuestion tool.
+
 ## Self-Check
 
 Before presenting findings:

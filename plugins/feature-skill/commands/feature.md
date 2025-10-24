@@ -74,6 +74,8 @@ Guide the user in Korean throughout the workflow:
 - Confirm before transitions
 - Summarize outcomes
 
+Never use AskUserQuestion tool.
+
 ## Initial Request
 
 User's feature request: $ARGUMENTS
