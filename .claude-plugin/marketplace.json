@@ -4,7 +4,7 @@
     "name": "이정윤",
     "email": "solstice@samteon.com"
   },
-  "metadata":{
+  "metadata": {
     "description": "Samteon Claude Code 플러그인"
   },
   "plugins": [
@@ -52,7 +52,7 @@
       "name": "feature-skill",
       "source": "./plugins/feature-skill",
       "description": "스킬 기반 모듈형 기능 개발 워크플로우",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samteon.com"

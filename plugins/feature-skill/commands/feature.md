@@ -51,7 +51,6 @@ The `architecture-design` skill will activate to design approaches.
 The `code-implementation` skill will activate to write code.
 
 **Your job:**
-- Confirm user approval before implementation starts
 - Let the skill implement the feature
 - After implementation, automatically proceed to Phase 5
 
