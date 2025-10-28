@@ -104,7 +104,10 @@ When complete, provide summary:
 
 **7. Automatic Transition**
 
-After presenting summary, automatically proceed to code-review skill.
+After presenting summary:
+
+1. Say "코드 리뷰를 시작하겠습니다."
+2. Immediately begin the code review process as described in the code-review skill
 
 ## Implementation Guidelines
 
