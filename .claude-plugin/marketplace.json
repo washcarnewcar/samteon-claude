@@ -76,6 +76,17 @@
           ]
         }
       }
+    },
+    {
+      "name": "markdown-to-pdf",
+      "source": "./plugins/markdown-to-pdf",
+      "description": "마크다운 문서를 네이비 테마 PDF로 변환 (한국어, 이모지, 테이블, 코드 블록 지원)",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samteon.com"
+      },
+      "category": "document"
     }
   ]
 }
