@@ -1,0 +1,167 @@
+---
+name: code-review
+description: |
+  Review code changes for quality, correctness, requirement fulfillment, and convention adherence using parallel code-reviewer agents.
+  Use this skill when:
+  - Code implementation (and optionally tests) are complete and need quality verification
+  - User asks "review this code", "check my changes", "코드 리뷰해줘"
+  - User says "look for bugs", "find issues", "문제 없는지 확인해줘"
+  - The feature skill triggers the code-review phase
+  - Before committing significant changes
+  This skill goes beyond simple linting — it verifies requirements are met, finds related components
+  that may need changes, and uses multiple independent reviewers for thorough coverage.
+allowed-tools: Task, Bash, Glob, Grep, Read, Edit, TodoWrite, WebSearch
+---
+
+# Code Review
+
+You orchestrate a thorough code review by combining automated checks with parallel **code-reviewer agents**, each bringing a different perspective. This catches issues that a single reviewer would miss.
+
+## Process
+
+### Phase 1: Discover Project Conventions
+
+Read CLAUDE.md files (root and subdirectories) to build a dynamic checklist:
+
+- **Critical rules**: Patterns explicitly marked as "금지", "forbidden", "zero tolerance", "필수"
+- **Coding patterns**: Service layers, naming conventions, import policies
+- **Build/lint commands**: What must pass before committing
+- **Test policies**: What the project requires for test coverage
+
+This checklist gets passed to the reviewer agents so they can validate project-specific rules without those rules being hardcoded in this skill.
+
+### Phase 2: Verify Requirements
+
+If a plan file exists (check `~/.claude/plans/` for the most recent `.md` file):
+
+1. Read the plan and extract the list of planned tasks/changes
+2. Run `git diff --name-only` to see what actually changed
+3. For each planned task, verify it was implemented:
+   - Read the relevant changed files
+   - Confirm the implementation matches the requirement
+4. Report any gaps as **"요구사항 미충족"** (highest severity)
+
+If no plan file exists, skip this phase — the review focuses on code quality only.
+
+### Phase 3: Check Related Components
+
+For each changed file, search for potentially missed changes:
+
+1. **Same directory, similar names**: Files in the same directory with similar naming patterns
+   ```
+   Example: Changed DraftGroupField.tsx → check for DraftField.tsx, DraftSpecField.tsx in same dir
+   ```
+
+2. **Same imports/dependencies**: Files that use the same hooks, services, DTOs, or utilities
+   ```
+   Example: Changed useDownloadDraft hook → find all files importing useDownloadDraft
+   ```
+
+3. **Report findings** as a table:
+   ```
+   | 상태 | 파일 | 이유 |
+   |------|------|------|
+   | ⚠️ 확인 필요 | SimilarComponent.tsx | 동일 훅 사용, 동일 디렉토리 |
+   | ✅ 수정됨 | ChangedComponent.tsx | - |
+   ```
+
+Not every flagged file needs changing — this is a reminder to check, not an error report.
+
+### Phase 4: Launch Code Reviewer Agents
+
+Spawn 3 **feature:code-reviewer** agents in parallel, each with a different focus:
+
+**Agent 1 — Simplicity & DRY:**
+```
+Review the code changes for:
+- Code duplication (same logic in multiple places)
+- Unnecessary complexity (simpler approach exists)
+- Over-engineering (abstractions that aren't needed yet)
+- Dead code or unused imports
+
+Project conventions: [paste discovered rules from Phase 1]
+Changed files: [list from git diff]
+```
+
+**Agent 2 — Bugs & Correctness:**
+```
+Review the code changes for:
+- Logic errors and off-by-one mistakes
+- Null/undefined handling gaps
+- Race conditions or concurrency issues
+- Error handling that swallows exceptions
+- Edge cases not covered
+- Security vulnerabilities (injection, XSS, etc.)
+
+Changed files: [list from git diff]
+```
+
+**Agent 3 — Project Conventions:**
+```
+Review the code changes against these project rules:
+[paste ALL discovered rules from Phase 1, especially critical/zero-tolerance items]
+
+Check every rule against the actual code. Flag violations with exact file:line references.
+
+Changed files: [list from git diff]
+```
+
+### Phase 5: Consolidate and Report
+
+Combine findings from all sources:
+
+1. **Severity classification**:
+   - **요구사항 미충족**: Plan requirement not implemented (from Phase 2)
+   - **Critical**: Must fix — bugs, security issues, zero-tolerance rule violations
+   - **Warning**: Should fix — quality issues, potential problems
+   - **Suggestion**: Could fix — minor improvements, style preferences
+
+2. **Confidence filter**: Only report issues where the reviewer is reasonably confident (vague "might be a problem" findings get filtered out)
+
+3. **Present the report**:
+
+```
+## 코드 리뷰 결과
+
+**전체 평가:** [1-2문장 요약]
+
+---
+
+### ❌ 요구사항 미충족
+(Phase 2 결과, 해당 시)
+
+### 🔴 Critical
+- **파일**: file.kt:42
+- **문제**: [구체적 설명]
+- **해결**: [수정 방법]
+
+### ⚠️ Warning
+- ...
+
+### 💡 Suggestion
+- ...
+
+### ✅ 잘한 점
+- [긍정적 측면]
+
+### 📋 연관 컴포넌트 확인
+(Phase 3 결과)
+```
+
+### Phase 6: Build Verification
+
+Run build/lint commands discovered from CLAUDE.md:
+- Report pass/fail for each command
+- If any fail, include the error output
+
+### Phase 7: User Decision
+
+Present findings and wait for the user's decision:
+- **"수정해줘"** → Fix the issues
+- **"이대로 진행"** → Proceed as-is
+- **"나중에"** → Note issues and move on
+
+## Communication
+
+All user-facing content in Korean. Agent prompts in English.
+Never use AskUserQuestion tool — communicate through normal text.
