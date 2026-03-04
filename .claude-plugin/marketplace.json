@@ -40,6 +40,17 @@
         "email": "solstice@samteon.com"
       },
       "category": "document"
+    },
+    {
+      "name": "docx-report-generation",
+      "source": "./plugins/docx-report-generation",
+      "description": "python-docx 한국어 Word 보고서 생성 (차트, 다이어그램, PDF 변환, 시각 비교)",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samteon.com"
+      },
+      "category": "document"
     }
   ]
 }
