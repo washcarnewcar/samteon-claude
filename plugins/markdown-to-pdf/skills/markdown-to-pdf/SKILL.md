@@ -8,7 +8,7 @@ allowed-tools: Bash, Read, Write
 
 ## Overview
 
-weasyprint + markdown 라이브러리로 마크다운을 전문적인 PDF로 변환. 네이비 테마, 한국어 폰트, 이모지 지원 포함.
+weasyprint + markdown 라이브러리로 마크다운을 전문적인 PDF로 변환. 두 가지 테마(네이비/심플) 지원, 한국어 폰트, 이모지 지원 포함.
 
 ## When to Use
 
@@ -25,7 +25,7 @@ weasyprint + markdown 라이브러리로 마크다운을 전문적인 PDF로 변
 brew install pango
 
 # Python 패키지
-pip3 install markdown weasyprint --break-system-packages
+pip3 install markdown weasyprint pymdown-extensions --break-system-packages
 ```
 
 **절대 금지:** 이모지를 다른 문자로 치환하지 말 것. 스크립트가 NotoEmoji 폰트를 자동 다운로드하여 처리.
@@ -34,18 +34,34 @@ pip3 install markdown weasyprint --break-system-packages
 
 스크립트 경로: `plugins/markdown-to-pdf/scripts/md2pdf.py`
 
+### 스타일 선택
+
+사용자가 "심플", "simple", "흑백", "깔끔한" 등의 키워드를 사용하면 `--style simple` 옵션을 사용한다.
+그 외에는 기본 네이비 테마를 적용한다.
+
 ```bash
+# 기본 (네이비 테마)
 python3 <plugin_dir>/scripts/md2pdf.py <input.md> <output.pdf>
+
+# 심플 스타일 (방법 1: --style 옵션)
+python3 <plugin_dir>/scripts/md2pdf.py <input.md> <output.pdf> --style simple
+
+# 심플 스타일 (방법 2: 래퍼 스크립트)
+python3 <plugin_dir>/scripts/md2pdf_simple.py <input.md> <output.pdf>
 ```
 
 스크립트가 자동으로 처리하는 것:
 - NotoEmoji 폰트 다운로드 (`/tmp/NotoEmoji.ttf` 없을 때)
-- 네이비 테마 CSS 적용
+- 선택된 테마 CSS 적용
 - markdown extensions: tables, fenced_code, codehilite, toc
 - 한국어 폰트 (Noto Sans KR) + 이모지 폰트 설정
 - A4 사이즈, 페이지 번호 자동 삽입
 
-## 테마 핵심 색상
+## 테마
+
+### Navy (기본)
+
+컬러풀한 네이비 테마. 보고서, 기획서 등 정식 문서에 적합.
 
 | 요소 | 색상 | 용도 |
 |------|------|------|
@@ -56,6 +72,18 @@ python3 <plugin_dir>/scripts/md2pdf.py <input.md> <output.pdf>
 | `#c7254e` | 레드 핑크 | 인라인 코드 |
 | `#3a86ff` | 블루 | blockquote 왼쪽 보더 |
 | `#f0f4ff` | 연한 블루 | blockquote 배경 |
+
+### Simple
+
+깔끔한 흑백 미니멀 스타일. 도메인 문서, 페이지 정의서 등 텍스트 중심 문서에 적합.
+
+| 요소 | 스타일 |
+|------|--------|
+| h1 | 검정 볼드 + 검정 하단선 |
+| h2 | 검정 + 연회색 하단선 |
+| 테이블 | 배경색 없는 볼드 헤더 + 연회색 테두리 |
+| blockquote | 연회색 배경 + 회색 왼쪽 보더 |
+| 코드 블록 | 연회색 배경 (라이트 테마) |
 
 ## Common Mistakes
 
