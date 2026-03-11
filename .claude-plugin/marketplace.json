@@ -2,7 +2,7 @@
   "name": "samteon-claude",
   "owner": {
     "name": "이정윤",
-    "email": "solstice@samteon.com"
+    "email": "solstice@samton.co.kr"
   },
   "metadata": {
     "description": "Samteon Claude Code 플러그인"
@@ -15,7 +15,7 @@
       "version": "2.0.0",
       "author": {
         "name": "이정윤",
-        "email": "solstice@samteon.com"
+        "email": "solstice@samton.co.kr"
       },
       "category": "development"
     },
@@ -26,7 +26,7 @@
       "version": "1.0.1",
       "author": {
         "name": "이정윤",
-        "email": "solstice@samteon.com"
+        "email": "solstice@samton.co.kr"
       },
       "category": "git"
     },
@@ -37,7 +37,7 @@
       "version": "1.1.0",
       "author": {
         "name": "이정윤",
-        "email": "solstice@samteon.com"
+        "email": "solstice@samton.co.kr"
       },
       "category": "document"
     },
@@ -48,7 +48,18 @@
       "version": "1.0.0",
       "author": {
         "name": "이정윤",
-        "email": "solstice@samteon.com"
+        "email": "solstice@samton.co.kr"
+      },
+      "category": "document"
+    },
+    {
+      "name": "dev-log",
+      "source": "./plugins/dev-log",
+      "description": "빌드 에러/경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록",
+      "version": "1.0.0",
+      "author": {
+        "name": "이정윤",
+        "email": "solstice@samton.co.kr"
       },
       "category": "document"
     }
