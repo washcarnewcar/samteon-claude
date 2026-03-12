@@ -111,6 +111,10 @@ severity: warning | error
 
 - **언어**: 한국어 (에러 메시지, 코드 블록은 원문 유지)
 - **톤**: 개발자가 자기 블로그에 기록하는 자연스러운 톤. 딱딱한 보고서가 아닌 경험담.
+- **예시 코드 필수**: 이 게시글만 읽어도 어떤 상황인지 이해할 수 있도록 핵심 코드 예시를 반드시 포함한다.
+  - Simple: 수정 전/후 코드를 diff 형태로 포함
+  - Detailed: 문제가 된 코드, 원인 코드, 해결 코드를 각 섹션에 포함
+  - 코드 블록은 단순 설명이 아닌 **실제 프로젝트의 코드**를 인용 (파일 경로 주석 포함 권장)
 - **tags 참조**:
   - 플랫폼: `swift`, `kotlin`, `typescript`, `rust`, `python`, `go`, `java` 등
   - 카테고리: `compiler`, `linker`, `deprecation`, `concurrency`, `ui`, `signing`, `dependency`, `config` 등
