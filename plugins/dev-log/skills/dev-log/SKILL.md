@@ -1,11 +1,15 @@
 ---
 name: dev-log
 description: |
-  Use when Claude has just fixed a build error, build warning, compiler error, linker error,
+  MUST ALWAYS automatically trigger — do NOT skip or ask the user for permission.
+  Trigger condition 1: Claude has just fixed a build error, build warning, compiler error, linker error,
   type check error, runtime crash, deprecation warning, or any IDE/tool warning during development.
-  Trigger AFTER the fix is confirmed working (build succeeds, warning resolved, tests pass).
-  Do NOT trigger for: trivial typo fixes, user-requested code changes that aren't bug/warning fixes,
-  or test-only changes. Covers all build systems: Xcode, Gradle, npm, cargo, go build, tsc, etc.
+  Trigger condition 2: Claude discovered a new technical fact (API behavior, framework pattern,
+  configuration method, optimization technique, etc.) and successfully applied it to the code.
+  Trigger AFTER the fix/application is confirmed working (build succeeds, warning resolved, tests pass).
+  Do NOT trigger for: trivial typo fixes, user-requested code changes that aren't bug/warning fixes
+  or new discoveries, or test-only changes.
+  Covers all build systems: Xcode, Gradle, npm, cargo, go build, tsc, etc.
 allowed-tools: Bash, Glob, Read, Write
 ---
 
@@ -17,17 +21,33 @@ allowed-tools: Bash, Glob, Read, Write
 
 Claude가 개발 중 빌드 에러나 경고를 수정한 직후, 그 과정을 블로그 글처럼 기록한다. 개발자가 자기 디버깅 경험을 블로그에 남기는 것과 같은 톤으로 작성하며, 프로젝트의 `docs/dev-logs/` 디렉토리에 저장한다.
 
+## Automatic Trigger Rule
+
+이 스킬은 아래 조건을 충족하면 **자동으로 반드시 호출**해야 한다.
+
+- 사용자에게 "dev-log를 작성할까요?" 같은 확인 질문을 **하지 않는다**
+- 조건 충족 시 게시물 작성을 **생략하지 않는다**
+- 수정/적용이 성공적으로 확인된 직후 바로 이 스킬을 호출한다
+
 ## When to Use
 
+**에러/경고 수정:**
 - 빌드 에러를 수정한 직후 (컴파일러, 링커, 타입 체크 등)
 - 빌드 경고를 해결한 직후 (deprecation, unused, concurrency 등)
 - 런타임 크래시의 원인을 찾아 수정한 직후
 - IDE/도구 경고를 해결한 직후
 
+**새로운 발견 + 적용 성공:**
+- 새로운 API, 패턴, 설정 방법을 발견하고 실제 코드에 적용 성공한 경우
+- 기존에 몰랐던 프레임워크/라이브러리 동작 방식을 파악하고 코드에 반영한 경우
+- 성능 개선이나 최적화 방법을 찾아 적용한 경우
+- 문서나 웹에서 찾은 해결 방법을 실제로 적용하여 동작을 확인한 경우
+
 **NOT for:**
-- 사용자가 요청한 기능 구현이나 리팩토링 (에러/경고 수정이 아닌 것)
+- 사용자가 요청한 단순 기능 구현이나 리팩토링 (새로운 발견 없이 지시대로 구현만 한 것)
 - 단순 오타 수정
 - 테스트 코드만 변경한 경우
+- 이미 알려진 방법을 그대로 적용한 경우 (새로운 발견이 아닌 것)
 
 ## Procedure
 
@@ -129,3 +149,5 @@ severity: warning | error
 | 에러 수정 전에 글을 작성하려고 함 | 반드시 수정이 확인된 후(빌드 성공, 경고 해소) 작성 |
 | 글이 너무 길어서 작업 흐름을 방해 | Simple/Detailed 분류를 엄격히 적용. 대부분은 Simple |
 | docs/dev-logs/ 경로를 프로젝트 외부에 생성 | 반드시 현재 작업 중인 프로젝트 루트의 docs/dev-logs/에 생성 |
+| 새로운 사실을 발견하고 적용했는데 게시물 작성을 건너뜀 | 트리거 조건을 충족하면 반드시 작성. 확인 질문 없이 자동 호출 |
+| 사용자에게 "dev-log 작성할까요?" 확인 질문 | 조건 충족 시 질문 없이 바로 작성. 작성 후 한 줄 안내만 출력 |
