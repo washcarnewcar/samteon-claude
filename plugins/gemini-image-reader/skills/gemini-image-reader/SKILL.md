@@ -1,0 +1,115 @@
+---
+name: gemini-image-reader
+description: |
+  ALWAYS trigger when ANY image is present in the conversation — whether the user attached an image,
+  pasted a clipboard image, provided an image file path, or an image appears as part of the context.
+  Activates regardless of whether the user explicitly asks to analyze the image.
+  If an image exists, use Gemini to read it. The user's message provides the analysis context.
+  Covers: screenshots, photos, UI mockups, diagrams, charts, scanned documents, handwritten notes,
+  error screenshots, and any visual content. File types: PNG, JPG/JPEG, GIF, WEBP, SVG, BMP, PDF.
+  Do NOT trigger for: programmatic image processing (resizing, filtering), image generation,
+  or when the user explicitly says to use Claude's own vision.
+allowed-tools: Bash, Read
+---
+
+# Gemini Image Reader
+
+이미지가 대화에 존재하면 Gemini CLI를 통해 읽는다. Claude의 이미지 분석 대신 Gemini에 위임하여 더 정확한 결과를 얻는다.
+
+## When to Use
+
+- 사용자가 이미지 파일을 첨부했을 때 (명시적 분석 요청 없어도)
+- 사용자가 클립보드 이미지를 붙여넣었을 때
+- 이미지 파일 경로가 메시지에 포함되었을 때
+- 작업 수행을 위해 이미지 내용 파악이 필요할 때
+
+**NOT for:**
+- 이미지 리사이징, 필터링 등 프로그래밍적 이미지 처리
+- 이미지 생성 작업
+- 사용자가 명시적으로 Claude의 자체 비전 사용을 요청한 경우
+
+## Procedure
+
+### Step 1: 이미지 소스 확인
+
+이미지 소스에 따라 파일 경로를 확보한다:
+
+**파일 경로가 주어진 경우:**
+```bash
+# 절대 경로로 변환 후 존재 확인
+test -f "{absolute_path}" && echo "OK" || echo "NOT FOUND"
+```
+
+**클립보드/인라인 이미지인 경우 (파일 경로 없음):**
+```bash
+osascript -e 'set theFile to POSIX file "/tmp/gemini_clipboard_image.png"
+set theImage to the clipboard as «class PNGf»
+set fp to open for access theFile with write permission
+write theImage to fp
+close access fp'
+```
+저장 경로: `/tmp/gemini_clipboard_image.png`
+
+### Step 2: 분석 컨텍스트 구성
+
+Gemini는 대화 컨텍스트가 전혀 없으므로, **사용자의 현재 작업 맥락과 집중 포인트를 프롬프트에 반드시 포함**한다.
+
+프롬프트 구성:
+```
+다음 이미지를 읽고 분석해주세요: {image_path}
+
+분석 컨텍스트: {context_description}
+
+{specific_instructions}
+
+한국어로 답변해주세요.
+```
+
+**컨텍스트 구성 가이드:**
+
+| 상황 | 컨텍스트 예시 |
+|------|-------------|
+| UI 스크린샷 | "이것은 {앱이름} 앱의 UI 스크린샷입니다. 레이아웃 구조, UI 컴포넌트 배치, 시각적으로 어색한 부분을 분석해주세요." |
+| 에러 스크린샷 | "이것은 개발 중 발생한 에러 스크린샷입니다. 에러 메시지, 스택 트레이스, 에러 발생 위치를 정확히 읽어주세요." |
+| 문서/텍스트 OCR | "이것은 스캔된 문서입니다. 모든 텍스트를 정확히 추출하고 원래 레이아웃을 유지해주세요." |
+| 다이어그램/차트 | "이것은 {종류} 다이어그램입니다. 구조, 데이터 포인트, 노드 간 관계를 상세히 설명해주세요." |
+| 디자인 시안 | "이것은 구현해야 할 UI 디자인 시안입니다. 색상값, 폰트 크기, 간격, 컴포넌트 계층 구조를 정확히 분석해주세요." |
+| 범용 (맥락 불분명) | "이 이미지의 내용을 상세히 설명해주세요." |
+
+**핵심 원칙:** 사용자의 메시지 내용 자체가 분석 컨텍스트다. 사용자가 "이 UI에서 버튼 위치 바꿔줘"라고 했다면, Gemini에게 "UI 레이아웃과 버튼 배치를 중점적으로 분석"하도록 컨텍스트를 구성한다.
+
+### Step 3: Gemini CLI 호출
+
+```bash
+/opt/homebrew/bin/gemini -p "{constructed_prompt}" --yolo 2>/dev/null
+```
+
+- `--yolo`: Gemini의 `read_file` 도구 호출을 자동 승인 (비대화형 실행)
+- `2>/dev/null`: punycode deprecation 경고 등 stderr 노이즈 억제
+- Bash timeout: 120000ms 권장
+
+### Step 4: 결과 활용
+
+- Gemini의 분석 결과를 사용자에게 전달하고, 원래 작업에 활용한다
+- **이미지를 다시 직접 분석하지 않는다** — Gemini 결과를 신뢰
+- 사용자의 원래 요청(코드 작성, 버그 수정, UI 구현 등)에 Gemini 분석 결과를 바로 적용
+
+## Error Handling
+
+| 상황 | 대응 |
+|------|------|
+| Gemini CLI 미설치 | `which gemini` 확인 후 `npm install -g @google/gemini-cli` 안내 |
+| 인증 실패 (AuthError) | 터미널에서 `gemini` 대화형으로 재인증 안내 |
+| 파일 없음 | 경로 확인 후 사용자에게 정확한 경로 요청 |
+| 클립보드 비어있음 | osascript 실패 시 이미지 파일 경로 직접 제공 요청 |
+| 타임아웃 | 이미지 크기가 큰 경우 잘라서 재시도 안내 |
+
+## Common Mistakes
+
+| 실수 | 해결 |
+|------|------|
+| 컨텍스트 없이 "이 이미지 설명해줘"만 전달 | 사용자의 작업 맥락과 집중 포인트를 반드시 포함 |
+| Claude가 이미지를 직접 분석하려고 함 | 이 스킬이 트리거되면 항상 Gemini에 위임. 직접 분석하지 않음 |
+| 상대 경로를 Gemini에 전달 | 반드시 절대 경로 사용 |
+| 클립보드 이미지인데 파일 경로를 찾으려 함 | 파일 경로가 없으면 osascript로 클립보드에서 저장 |
+| Gemini 결과를 무시하고 자체 판단 | Gemini 분석을 신뢰하고 그 결과를 기반으로 작업 |
