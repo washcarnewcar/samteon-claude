@@ -154,12 +154,29 @@ Run build/lint commands discovered from CLAUDE.md:
 - Report pass/fail for each command
 - If any fail, include the error output
 
-### Phase 7: User Decision
+### Phase 7: User Decision and Re-review Loop
 
 Present findings and wait for the user's decision:
-- **"수정해줘"** → Fix the issues
+- **"수정해줘"** → Fix the issues, then **re-review** (see below)
 - **"이대로 진행"** → Proceed as-is
 - **"나중에"** → Note issues and move on
+
+#### Re-review after fixes
+
+When the user chooses "수정해줘":
+
+1. Fix all reported Critical and Warning issues
+2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
+3. **Re-run from Phase 4**: Launch 3 code-reviewer agents again with updated code
+   - Reviewers must verify: (a) previously reported issues are resolved, (b) no new issues introduced by the fixes
+   - Include the list of previously reported issues in the agent prompts so they can confirm resolution
+4. Consolidate results (Phase 5) and run build verification (Phase 6)
+5. If new issues are found, present them and repeat this loop
+6. If no Critical/Warning issues remain, announce: "재검토 완료 — 모든 이슈가 해결되었습니다."
+
+This loop continues until either:
+- No Critical or Warning issues remain
+- The user explicitly chooses "이대로 진행" to accept remaining issues
 
 ## Communication
 

@@ -33,7 +33,9 @@ test-writing skill → test-writer agent writes tests
     ↓
 code-review skill → code-reviewer agents review everything
     ↓
-Done — ready for commit
+Issues found? → Fix → Re-run code-review (재검토 루프)
+    ↓
+No issues or user approves → Done — ready for commit
 ```
 
 ## What You Must Do
@@ -56,6 +58,7 @@ Include this at the end of every plan file:
 - code-review 스킬 활성화
 - code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰
 - 리뷰 결과 사용자에게 보고
+- 수정 발생 시 code-review 재실행하여 재검토 (이슈 해결 확인 + 새로운 문제 검출)
 ```
 
 ### After Implementation
@@ -67,6 +70,7 @@ Once code implementation is complete:
 3. **After tests pass, announce**: "테스트가 완료되었습니다. 코드 리뷰를 시작하겠습니다."
 4. **Activate code-review skill**: The code-review skill will orchestrate code-reviewer agents
 5. **Report results to user**: Present review findings and wait for user decision
+6. **If user chooses to fix**: Fix the reported issues, then **re-activate code-review skill** for re-review. The code-review skill handles the re-review loop internally — it will re-run reviewer agents after fixes are applied and repeat until no critical issues remain or the user approves.
 
 ## Why This Matters
 
