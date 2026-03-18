@@ -67,7 +67,7 @@
       "name": "gemini-image-reader",
       "source": "./plugins/gemini-image-reader",
       "description": "이미지 파일을 Gemini CLI로 분석하여 텍스트 설명을 반환 (스크린샷, 문서, 다이어그램, 사진 등)",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
