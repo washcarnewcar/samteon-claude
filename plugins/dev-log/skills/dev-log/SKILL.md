@@ -6,6 +6,10 @@ description: |
   type check error, runtime crash, deprecation warning, or any IDE/tool warning during development.
   Trigger condition 2: Claude discovered a new technical fact (API behavior, framework pattern,
   configuration method, optimization technique, etc.) and successfully applied it to the code.
+  Trigger condition 3: A library/framework update changed an API that previously worked differently.
+  Claude discovered the breaking change or new usage pattern and adapted the code accordingly.
+  Examples: component prop requirements changed, API signature modified, deprecated method removed,
+  new required configuration added after version upgrade.
   Trigger AFTER the fix/application is confirmed working (build succeeds, warning resolved, tests pass).
   Do NOT trigger for: trivial typo fixes, user-requested code changes that aren't bug/warning fixes
   or new discoveries, or test-only changes.
@@ -42,6 +46,11 @@ Claude가 개발 중 빌드 에러나 경고를 수정한 직후, 그 과정을 
 - 기존에 몰랐던 프레임워크/라이브러리 동작 방식을 파악하고 코드에 반영한 경우
 - 성능 개선이나 최적화 방법을 찾아 적용한 경우
 - 문서나 웹에서 찾은 해결 방법을 실제로 적용하여 동작을 확인한 경우
+
+**라이브러리/프레임워크 업데이트로 인한 변경 발견:**
+- 라이브러리 버전 업그레이드 후 기존 코드가 동작하지 않아 새로운 사용법을 찾은 경우
+- 컴포넌트 API가 변경되어 기존 패턴이 더 이상 유효하지 않음을 발견한 경우
+- 이전 버전에서는 불필요했던 prop/설정이 필수가 된 것을 발견한 경우
 
 **NOT for:**
 - 사용자가 요청한 단순 기능 구현이나 리팩토링 (새로운 발견 없이 지시대로 구현만 한 것)
