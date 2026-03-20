@@ -1,0 +1,17 @@
+{
+  "description": "빌드 에러 수정 후 dev-log 미작성 시 종료 차단",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/check-dev-log-skill.sh",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  }
+}

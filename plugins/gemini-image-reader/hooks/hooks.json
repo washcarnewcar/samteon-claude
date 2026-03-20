@@ -1,5 +1,5 @@
 {
-  "description": "이미지 파일에 대한 Read 도구 호출을 차단하고 gemini-image-reader 스킬 사용을 강제",
+  "description": "이미지 파일 Read 차단 + inline 이미지 보존",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,18 @@
           {
             "type": "command",
             "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/block-image-read.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/preserve-images.sh",
             "timeout": 5000
           }
         ]
