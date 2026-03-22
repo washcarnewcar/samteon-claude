@@ -10,7 +10,7 @@ if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
 fi
 
 # transcript에서 빌드 에러/수정 관련 키워드 확인
-has_error_fix=$(grep -ciE "(error|warning|fix|bug|crash|deprecat|compile|build failed|build succeeded|insight|발견|원인|올바른 패턴|breaking change|migration|업그레이드|업데이트|변경)" "$transcript_path" 2>/dev/null || echo "0")
+has_error_fix=$(grep -ciE "(error|warning|fix|bug|crash|deprecat|compile|build failed|build succeeded|insight|발견|원인|올바른 패턴|breaking change|migration|업그레이드|업데이트|변경)" "$transcript_path" 2>/dev/null) || has_error_fix=0
 
 if [ "$has_error_fix" -lt 3 ]; then
   echo '{"decision": "approve"}'
