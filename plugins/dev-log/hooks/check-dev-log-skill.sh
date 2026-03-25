@@ -9,10 +9,17 @@ if [ -z "$transcript_path" ] || [ ! -f "$transcript_path" ]; then
   exit 0
 fi
 
-# transcript에서 빌드 에러/수정 관련 키워드 확인
-has_error_fix=$(grep -ciE "(error|warning|fix|bug|crash|deprecat|compile|발견|원인|올바른 패턴|breaking change|migration|업그레이드|업데이트|변경)" "$transcript_path" 2>/dev/null) || has_error_fix=0
+# 실제 코드 편집이 있었는지 확인 (Edit/Write tool 사용 흔적)
+has_code_edit=$(grep -cE '"tool":\s*"(Edit|Write)"' "$transcript_path" 2>/dev/null) || has_code_edit=0
+if [ "$has_code_edit" -lt 1 ]; then
+  echo '{"decision": "approve"}'
+  exit 0
+fi
 
-if [ "$has_error_fix" -lt 3 ]; then
+# transcript에서 빌드 에러/수정 관련 키워드 확인
+has_error_fix=$(grep -ciE "(build (failed|error|succeeded)|compile error|type.?check|runtime crash|deprecat|빌드 (에러|오류|성공)|컴파일|워닝 해결|경고 해결|에러 수정|버그 수정|breaking change)" "$transcript_path" 2>/dev/null) || has_error_fix=0
+
+if [ "$has_error_fix" -lt 5 ]; then
   echo '{"decision": "approve"}'
   exit 0
 fi
