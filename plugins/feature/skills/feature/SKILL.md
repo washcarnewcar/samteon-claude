@@ -56,7 +56,8 @@ Include this at the end of every plan file:
 
 ### 코드 리뷰
 - code-review 스킬 활성화
-- code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰
+- Codex 가용 시: Codex adversarial-review 2개 + convention 에이전트 병렬 실행
+- Codex 미가용 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰 (기존 방식)
 - 리뷰 결과 사용자에게 보고
 - 수정 발생 시 code-review 재실행하여 재검토 (이슈 해결 확인 + 새로운 문제 검출)
 ```

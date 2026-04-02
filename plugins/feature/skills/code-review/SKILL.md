@@ -19,6 +19,26 @@ You orchestrate a thorough code review by combining automated checks with parall
 
 ## Process
 
+### Phase 0: Detect Codex Availability
+
+Check whether the codex-plugin-cc plugin is installed and authenticated:
+
+1. Locate the companion script:
+   ```bash
+   find ~/.claude/plugins/cache -path "*/codex/*/scripts/codex-companion.mjs" 2>/dev/null | sort -V | tail -1
+   ```
+
+2. If found, check readiness:
+   ```bash
+   node "<found-path>" setup --json
+   ```
+
+3. Determine mode:
+   - `ready: true` + `auth.loggedIn: true` → **CODEX_MODE**
+   - Otherwise → **LEGACY_MODE** (all 3 reviewers use feature:code-reviewer agents, unchanged)
+
+Store the resolved script path as `$CODEX_SCRIPT` for Phase 4.
+
 ### Phase 1: Discover Project Conventions
 
 Read CLAUDE.md files (root and subdirectories) to build a dynamic checklist:
@@ -67,7 +87,33 @@ For each changed file, search for potentially missed changes:
 
 Not every flagged file needs changing — this is a reminder to check, not an error report.
 
-### Phase 4: Launch Code Reviewer Agents
+### Phase 4: Launch Reviewers
+
+#### CODEX_MODE
+
+Spawn 3 reviewers in parallel — 2 Codex adversarial-reviews via Bash + 1 convention agent:
+
+**Reviewer A — Bugs & Correctness (Codex):**
+```bash
+node "$CODEX_SCRIPT" adversarial-review --wait "Focus on: logic errors, null/undefined handling gaps, race conditions, error handling that swallows exceptions, edge cases not covered, security vulnerabilities (injection, XSS), off-by-one mistakes"
+```
+
+**Reviewer B — Simplicity & DRY (Codex):**
+```bash
+node "$CODEX_SCRIPT" adversarial-review --wait "Focus on: code duplication (same logic in multiple places), unnecessary complexity (simpler approach exists), over-engineering (abstractions not needed yet), dead code and unused imports. Challenge whether each abstraction earns its keep."
+```
+
+**Reviewer C — Project Conventions (feature:code-reviewer agent):**
+```
+Review the code changes against these project rules:
+[paste ALL discovered rules from Phase 1, especially critical/zero-tolerance items]
+
+Check every rule against the actual code. Flag violations with exact file:line references.
+
+Changed files: [list from git diff]
+```
+
+#### LEGACY_MODE
 
 Spawn 3 **feature:code-reviewer** agents in parallel, each with a different focus:
 
@@ -118,7 +164,13 @@ Combine findings from all sources:
 
 2. **Confidence filter**: Only report issues where the reviewer is reasonably confident (vague "might be a problem" findings get filtered out)
 
-3. **Present the report**:
+3. **Codex output mapping** (CODEX_MODE only):
+   - Codex adversarial-review returns structured findings with severity levels
+   - Map: `critical`/`high` → 🔴 Critical, `medium` → ⚠️ Warning, `low` → 💡 Suggestion
+   - Append "(Codex)" suffix to each finding's source for traceability
+   - Deduplicate: if both Codex reviewers flag the same file:line, keep the higher severity
+
+4. **Present the report**:
 
 ```
 ## 코드 리뷰 결과
@@ -167,9 +219,12 @@ When the user chooses "수정해줘":
 
 1. Fix all reported Critical and Warning issues
 2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
-3. **Re-run from Phase 4**: Launch 3 code-reviewer agents again with updated code
+3. **Re-run from Phase 4**: Launch reviewers again with updated code
+   - In CODEX_MODE: re-run both Codex adversarial-reviews + convention agent
+     - Append to Codex focus text: "Also verify these previously reported issues are resolved: [issue list]"
+   - In LEGACY_MODE: re-launch 3 code-reviewer agents (existing behavior)
    - Reviewers must verify: (a) previously reported issues are resolved, (b) no new issues introduced by the fixes
-   - Include the list of previously reported issues in the agent prompts so they can confirm resolution
+   - Include the list of previously reported issues in the agent/Codex prompts so they can confirm resolution
 4. Consolidate results (Phase 5) and run build verification (Phase 6)
 5. If new issues are found, present them and repeat this loop
 6. If no Critical/Warning issues remain, announce: "재검토 완료 — 모든 이슈가 해결되었습니다."
