@@ -21,23 +21,38 @@ You orchestrate a thorough code review by combining automated checks with parall
 
 ### Phase 0: Detect Codex Availability
 
-Check whether the codex-plugin-cc plugin is installed and authenticated:
+Determine whether to use Codex-powered reviews or fall back to agent-only mode.
 
-1. Locate the companion script:
-   ```bash
-   find ~/.claude/plugins/cache -path "*/codex/*/scripts/codex-companion.mjs" 2>/dev/null | sort -V | tail -1
-   ```
+**Step 1 — Locate the companion script:**
+```bash
+CODEX_SCRIPT=$(find ~/.claude/plugins/cache -path "*/codex/*/scripts/codex-companion.mjs" 2>/dev/null | sort -V | tail -1)
+echo "codex-script: ${CODEX_SCRIPT:-not found}"
+```
 
-2. If found, check readiness:
-   ```bash
-   node "<found-path>" setup --json
-   ```
+**Step 2 — Check readiness (only if script was found):**
 
-3. Determine mode:
-   - `ready: true` + `auth.loggedIn: true` → **CODEX_MODE**
-   - Otherwise → **LEGACY_MODE** (all 3 reviewers use feature:code-reviewer agents, unchanged)
+If `$CODEX_SCRIPT` is empty → skip directly to LEGACY_MODE.
 
-Store the resolved script path as `$CODEX_SCRIPT` for Phase 4.
+If found, run:
+```bash
+node "$CODEX_SCRIPT" setup --json 2>/dev/null || echo '{"ready":false,"error":"execution failed"}'
+```
+
+**Step 3 — Determine mode and announce:**
+
+| Script found | `ready` | `auth.loggedIn` | Mode |
+|---|---|---|---|
+| No | — | — | LEGACY_MODE |
+| Yes | false | — | LEGACY_MODE |
+| Yes | true | false | LEGACY_MODE |
+| Yes | true | true | CODEX_MODE |
+
+Announce the result to the user:
+- CODEX_MODE: `"Codex 감지 완료 → CODEX_MODE로 실행 (adversarial-review 2개 + convention 에이전트)"`
+- LEGACY_MODE (not found): `"Codex 미설치 → LEGACY_MODE로 실행 (code-reviewer 에이전트 3개 병렬)"`
+- LEGACY_MODE (not authenticated): `"Codex 설치됨, 인증 미완료 → LEGACY_MODE로 실행"`
+
+Store `$CODEX_SCRIPT` for Phase 4 if CODEX_MODE.
 
 ### Phase 1: Discover Project Conventions
 
@@ -215,23 +230,30 @@ Present findings and wait for the user's decision:
 
 #### Re-review after fixes
 
+**CRITICAL**: Fixing issues without re-review is prohibited. Every fix round MUST be followed by a re-review.
+
 When the user chooses "수정해줘":
 
 1. Fix all reported Critical and Warning issues
 2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
-3. **Re-run from Phase 4**: Launch reviewers again with updated code
+3. **Re-run from Phase 4**: Launch reviewers again with the updated code
    - In CODEX_MODE: re-run both Codex adversarial-reviews + convention agent
      - Append to Codex focus text: "Also verify these previously reported issues are resolved: [issue list]"
-   - In LEGACY_MODE: re-launch 3 code-reviewer agents (existing behavior)
-   - Reviewers must verify: (a) previously reported issues are resolved, (b) no new issues introduced by the fixes
-   - Include the list of previously reported issues in the agent/Codex prompts so they can confirm resolution
+   - In LEGACY_MODE: re-launch 3 code-reviewer agents
+   - ALL reviewers receive: (a) the list of previously reported issues to verify resolution, (b) instruction to check for new issues introduced by the fixes
 4. Consolidate results (Phase 5) and run build verification (Phase 6)
-5. If new issues are found, present them and repeat this loop
-6. If no Critical/Warning issues remain, announce: "재검토 완료 — 모든 이슈가 해결되었습니다."
+5. If new issues are found → present them → fix → **re-review again** (repeat this loop)
+6. If no Critical/Warning issues remain → announce: "재검토 완료 — 모든 이슈가 해결되었습니다."
+
+```
+Fix → Re-review → More issues? → Fix → Re-review → Clean? → Done
+```
 
 This loop continues until either:
 - No Critical or Warning issues remain
 - The user explicitly chooses "이대로 진행" to accept remaining issues
+
+**Never skip the re-review step.** If the user or the implementing agent fixes issues and does not re-invoke this skill, the Stop hook will block the session from ending.
 
 ## Communication
 

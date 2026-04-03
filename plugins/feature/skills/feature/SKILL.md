@@ -29,14 +29,29 @@ This skill adds two mandatory quality gates at the end:
 ```
 [Normal Claude Code workflow] → Implementation complete
     ↓
-test-writing skill → test-writer agent writes tests
+Skill tool → skill: "feature:test-writing"  (테스트 작성)
     ↓
-code-review skill → code-reviewer agents review everything
+Skill tool → skill: "feature:code-review"   (코드 리뷰)
     ↓
-Issues found? → Fix → Re-run code-review (재검토 루프)
+Issues found? → Fix → Re-invoke "feature:code-review" (재검토 루프)
     ↓
-No issues or user approves → Done — ready for commit
+Clean or user approves → Done — ready for commit
 ```
+
+## IMPORTANT: How to Invoke Sub-Skills
+
+**You MUST use the Skill tool to invoke test-writing and code-review.** Do NOT call the test-writer or code-reviewer agents directly via the Agent tool — doing so bypasses the skill orchestration (project rule discovery, requirement verification, Codex integration, re-review loop).
+
+```
+✅ CORRECT:  Skill(skill="feature:test-writing")
+✅ CORRECT:  Skill(skill="feature:code-review")
+
+❌ WRONG:    Agent(subagent_type="test-writer")
+❌ WRONG:    Agent(subagent_type="code-reviewer")
+❌ WRONG:    Agent(subagent_type="feature:test-writer")
+```
+
+The skills internally spawn the appropriate agents with full context (project rules, changed files, review focus areas). Calling agents directly skips all of this.
 
 ## What You Must Do
 
@@ -50,16 +65,16 @@ Include this at the end of every plan file:
 ## 검증
 
 ### 테스트 작성
-- test-writing 스킬 활성화
+- `Skill(skill="feature:test-writing")` 호출
 - test-writer 서브 에이전트가 독립적으로 테스트 작성
 - 테스트 실행 및 통과 확인
 
 ### 코드 리뷰
-- code-review 스킬 활성화
+- `Skill(skill="feature:code-review")` 호출
 - Codex 가용 시: Codex adversarial-review 2개 + convention 에이전트 병렬 실행
-- Codex 미가용 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰 (기존 방식)
+- Codex 미가용 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰
 - 리뷰 결과 사용자에게 보고
-- 수정 발생 시 code-review 재실행하여 재검토 (이슈 해결 확인 + 새로운 문제 검출)
+- 수정 발생 시 `Skill(skill="feature:code-review")` 재호출하여 재검토
 ```
 
 ### After Implementation
@@ -67,11 +82,21 @@ Include this at the end of every plan file:
 Once code implementation is complete:
 
 1. **Announce transition**: "구현이 완료되었습니다. 테스트 작성을 시작하겠습니다."
-2. **Activate test-writing skill**: The test-writing skill will orchestrate the test-writer agent
+2. **Invoke test-writing skill**: `Skill(skill="feature:test-writing")`
 3. **After tests pass, announce**: "테스트가 완료되었습니다. 코드 리뷰를 시작하겠습니다."
-4. **Activate code-review skill**: The code-review skill will orchestrate code-reviewer agents
+4. **Invoke code-review skill**: `Skill(skill="feature:code-review")`
 5. **Report results to user**: Present review findings and wait for user decision
-6. **If user chooses to fix**: Fix the reported issues, then **re-activate code-review skill** for re-review. The code-review skill handles the re-review loop internally — it will re-run reviewer agents after fixes are applied and repeat until no critical issues remain or the user approves.
+6. **If fixes are needed**: Fix the issues, then **re-invoke code-review skill** — `Skill(skill="feature:code-review")` again. Repeat until clean or user approves.
+
+### Re-review is Mandatory
+
+```
+Fix issues → MUST re-invoke Skill(skill="feature:code-review")
+           → Never skip this step
+           → Repeat until no Critical/Warning issues remain
+```
+
+If you fix issues found by the code review and do NOT re-invoke the code-review skill, the Stop hook will block the session from ending.
 
 ## Why This Matters
 

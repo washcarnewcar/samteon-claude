@@ -1,3 +1,5 @@
 {
-  "name": "feature"
+  "name": "feature",
+  "description": "Feature development quality gates — automated test writing and multi-perspective code review with optional Codex integration",
+  "version": "2.4.0"
 }

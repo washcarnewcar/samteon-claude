@@ -97,7 +97,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트" "/
 bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트" ".playwright-mcp/page-{timestamp}.png"
 ```
 
-- Bash timeout: 120000ms 권장
+- Bash timeout: 300000ms 권장
 
 #### Gemini 사용 불가 시: Claude Fallback
 

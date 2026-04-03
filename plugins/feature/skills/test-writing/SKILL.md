@@ -56,17 +56,23 @@ Before launching the agent, gather the information it needs:
 
 ### Phase 2: Launch test-writer Agent
 
-Spawn a **feature:test-writer** agent with all the context gathered:
+Spawn the test-writer agent using the **Agent tool**:
 
 ```
-Agent prompt should include:
+Agent(
+  subagent_type="feature:test-writer",
+  description="테스트 작성",
+  prompt="... (context from Phase 1)"
+)
+```
+
+The agent prompt should include:
 - Changed files list and what each change does
 - Test conventions discovered from CLAUDE.md
 - Existing test file patterns (structure, naming, framework)
 - Test execution command
 - Path to save test files
 - Any special requirements from CLAUDE.md
-```
 
 The agent will independently:
 1. Read the changed source files
@@ -106,7 +112,12 @@ After the agent completes:
 After tests are complete and passing, announce:
 "테스트가 완료되었습니다. 코드 리뷰를 시작하겠습니다."
 
-Then activate the **code-review** skill.
+Then invoke the code-review skill using the Skill tool:
+```
+Skill(skill="feature:code-review")
+```
+
+Do NOT call code-reviewer agents directly via the Agent tool — the skill handles orchestration, project rule discovery, and Codex integration.
 
 ## Communication
 
