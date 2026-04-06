@@ -253,7 +253,7 @@ This loop continues until either:
 - No Critical or Warning issues remain
 - The user explicitly chooses "이대로 진행" to accept remaining issues
 
-**Never skip the re-review step.** If the user or the implementing agent fixes issues and does not re-invoke this skill, the Stop hook will block the session from ending.
+**Never skip the re-review step.** If the user or the implementing agent fixes issues, always re-invoke this skill to verify the fixes.
 
 ## Communication
 

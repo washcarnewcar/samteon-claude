@@ -96,7 +96,7 @@ Fix issues → MUST re-invoke Skill(skill="feature:code-review")
            → Repeat until no Critical/Warning issues remain
 ```
 
-If you fix issues found by the code review and do NOT re-invoke the code-review skill, the Stop hook will block the session from ending.
+If you fix issues found by the code review, re-invoke the code-review skill to verify the fixes.
 
 ## Why This Matters
 
