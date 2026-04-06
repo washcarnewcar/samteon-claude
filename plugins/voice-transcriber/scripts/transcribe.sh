@@ -93,7 +93,71 @@ if [ ! -x "$MLX_ASR_BIN" ]; then
   exit 1
 fi
 
-# 공통 인자
+# ASR 상주 서버 체크
+ASR_PORT="${ASR_PORT:-8787}"
+ASR_URL="http://127.0.0.1:${ASR_PORT}"
+
+if curl -sf "${ASR_URL}/health" > /dev/null 2>&1; then
+  # 서버가 돌고 있으면 HTTP 요청 (빠른 경로)
+  ABS_AUDIO="$(cd "$(dirname "$AUDIO_PATH")" && pwd)/$(basename "$AUDIO_PATH")"
+
+  # JSON body 구성
+  JSON_BODY="{\"audio_path\": \"${ABS_AUDIO}\", \"language\": \"${LANGUAGE}\""
+  if [ "$DIARIZE" = true ]; then
+    JSON_BODY="${JSON_BODY}, \"diarize\": true"
+    if [ -n "$NUM_SPEAKERS" ]; then
+      JSON_BODY="${JSON_BODY}, \"num_speakers\": ${NUM_SPEAKERS}"
+    fi
+  fi
+  JSON_BODY="${JSON_BODY}}"
+
+  RESPONSE=$(curl -sf -X POST "${ASR_URL}/transcribe" \
+    -H "Content-Type: application/json" \
+    -d "$JSON_BODY")
+
+  if [ "$DIARIZE" = true ]; then
+    # 화자구분: JSON → txt 변환
+    if [ -z "$OUTPUT_DIR" ]; then
+      OUTPUT_DIR=$(mktemp -d)
+    fi
+    mkdir -p "$OUTPUT_DIR"
+
+    AUDIO_BASE=$(basename "$AUDIO_PATH")
+    AUDIO_STEM="${AUDIO_BASE%.*}"
+    TXT_PATH="$OUTPUT_DIR/${AUDIO_STEM}.txt"
+
+    echo "$RESPONSE" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+segments = data.get('speaker_segments', [])
+if segments:
+    # 화자 라벨을 참석자 N 형태로 변환
+    speakers = {}
+    counter = 1
+    lines = []
+    for seg in segments:
+        spk = seg['speaker']
+        if spk not in speakers:
+            speakers[spk] = f'참석자 {counter}'
+            counter += 1
+        lines.append(f\"{speakers[spk]}: {seg['text']}\")
+    print('\n'.join(lines))
+else:
+    print(data.get('text', ''))
+" > "$TXT_PATH"
+
+    # 감지된 화자 수 출력
+    SPEAKER_COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(set(s['speaker'] for s in d.get('speaker_segments',[]))))")
+    echo "감지된 화자: ${SPEAKER_COUNT}명" >&2
+    echo "$TXT_PATH"
+  else
+    # 일반 전사: 텍스트만 출력
+    echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
+  fi
+  exit 0
+fi
+
+# 공통 인자 (CLI fallback)
 MODEL="Qwen/Qwen3-ASR-1.7B"
 DTYPE="bfloat16"
 COMMON_ARGS=(--model "$MODEL" --dtype "$DTYPE" --language "$LANGUAGE" --no-progress)

@@ -161,6 +161,26 @@ reply(chat_id=<chat_id>, body="전사가 완료되었습니다.", files=["/tmp/r
 **Claude Code 직접 파일인 경우:**
 저장 경로를 텍스트로 안내한다.
 
+## ASR 상주 서버 (선택사항)
+
+전사 속도를 높이려면 ASR 상주 서버를 띄울 수 있다. 모델을 메모리에 올려두고 재사용하여 매 전사마다 모델 로딩(~5초)을 생략한다.
+
+**서버 시작:**
+```bash
+~/.venvs/voice-transcriber/bin/python ${CLAUDE_PLUGIN_ROOT}/scripts/asr-server.py --port 8787
+```
+
+**동작 방식:**
+- `transcribe.sh`가 실행 시 먼저 `http://127.0.0.1:8787/health`를 체크
+- 서버가 돌고 있으면 HTTP 요청으로 빠른 전사 (일반: 2~4초, 화자구분: 5~10초)
+- 서버가 없으면 기존 CLI 방식으로 자동 fallback (8~10초)
+- 화자구분(--diarize) 모드도 서버 지원 (diarize, num_speakers 파라미터)
+
+**참고:**
+- 서버는 RAM 약 4~5GB 점유
+- 세션 종료 시 서버도 함께 종료됨
+- 모델 첫 로딩에 약 20초 소요
+
 ## Error Handling
 
 | 상황 | 대응 |
