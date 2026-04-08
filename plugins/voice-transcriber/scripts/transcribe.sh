@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+trap 'kill 0 2>/dev/null' TERM INT
 
 # Usage:
 #   transcribe.sh <audio_file>                                        # 일반 전사 (한국어, stdout 텍스트)
