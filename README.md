@@ -1,6 +1,6 @@
 # samteon-claude
 
-이정윤이 운영하는 개인 Claude Code 플러그인 마켓플레이스입니다. 여러 개의 플러그인을 묶어서 한 저장소에서 관리하고, 각 플러그인은 Claude Code 마켓플레이스 시스템을 통해 설치·업데이트됩니다. 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다.
+Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. 각 플러그인은 Claude Code 마켓플레이스 시스템을 통해 관리되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다.
 
 ## 수록 플러그인
 
@@ -78,10 +78,10 @@ npx skills add https://github.com/washcarnewcar/samteon-claude/tree/main/plugins
 
 ## 기여 / 문의
 
-개인 프로젝트이지만 이슈·PR은 환영합니다.
+Samton 팀 공용 저장소입니다. 팀원은 자신의 플러그인을 `plugins/<name>/` 디렉토리로 추가하고 `.claude-plugin/marketplace.json`에 엔트리를 등록하면 다른 팀원들이 바로 설치해서 쓸 수 있습니다. 외부 사용자의 이슈·PR도 환영합니다.
 
 - 이슈: https://github.com/washcarnewcar/samteon-claude/issues
-- 이메일: solstice@samton.co.kr
+- 저장소 관리자: 이정윤 <solstice@samton.co.kr>
 
 ## 라이선스
 
