@@ -10,7 +10,7 @@ from __future__ import annotations
 import getpass
 import sys
 
-from tmap_client import LOCAL_KEY_FILE, save_app_key
+from tmap_client import save_app_key
 
 
 def main() -> int:
