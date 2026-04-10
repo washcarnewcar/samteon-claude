@@ -1,4 +1,4 @@
-# samteon-claude
+# samton-claude
 
 ## 작업 시작 규칙
 
