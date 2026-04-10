@@ -1,5 +1,19 @@
 {
   "name": "feature",
-  "description": "Feature development quality gates — automated test writing and multi-perspective code review with optional Codex integration",
-  "version": "2.5.0"
+  "version": "2.5.1",
+  "description": "기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함)",
+  "author": {
+    "name": "이정윤",
+    "email": "solstice@samton.co.kr"
+  },
+  "homepage": "https://github.com/washcarnewcar/samteon-claude",
+  "repository": "https://github.com/washcarnewcar/samteon-claude",
+  "license": "MIT",
+  "keywords": [
+    "feature-development",
+    "quality-gates",
+    "test-writing",
+    "code-review",
+    "workflow"
+  ]
 }

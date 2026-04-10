@@ -1,3 +1,19 @@
 {
-  "name": "markdown-to-pdf"
+  "name": "markdown-to-pdf",
+  "version": "2.0.1",
+  "description": "마크다운 문서를 네이비 테마 PDF로 변환 (한국어, 이모지, 테이블, 코드 블록 지원)",
+  "author": {
+    "name": "이정윤",
+    "email": "solstice@samton.co.kr"
+  },
+  "homepage": "https://github.com/washcarnewcar/samteon-claude",
+  "repository": "https://github.com/washcarnewcar/samteon-claude",
+  "license": "MIT",
+  "keywords": [
+    "markdown",
+    "pdf",
+    "conversion",
+    "korean",
+    "theme"
+  ]
 }

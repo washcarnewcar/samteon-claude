@@ -1,3 +1,19 @@
 {
-  "name": "dev-log"
+  "name": "dev-log",
+  "version": "1.3.4",
+  "description": "빌드 에러/경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록",
+  "author": {
+    "name": "이정윤",
+    "email": "solstice@samton.co.kr"
+  },
+  "homepage": "https://github.com/washcarnewcar/samteon-claude",
+  "repository": "https://github.com/washcarnewcar/samteon-claude",
+  "license": "MIT",
+  "keywords": [
+    "logging",
+    "build-errors",
+    "documentation",
+    "markdown",
+    "automation"
+  ]
 }
