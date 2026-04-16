@@ -39,6 +39,31 @@ allowed-tools: Bash, Read, Write
 
 ## Procedure
 
+### Step 0: 설정 확인
+
+`.claude/voice-transcriber.local.md` 파일이 존재하는지 확인한다. (Bash로 `test -f .claude/voice-transcriber.local.md`)
+
+**파일이 없으면** 사용자에게 모드 선택을 질문한다:
+
+> 음성 전사 모드를 선택해주세요:
+> - **server**: 모델을 메모리에 상주시켜 빠르게 전사합니다. 5분 유휴 시 모델을 자동 언로드하여 GPU 메모리를 해제합니다. (GPU 메모리 여유가 있는 경우 추천)
+> - **cli**: 요청마다 모델을 새로 로드합니다. 느리지만 메모리를 사용할 때만 점유합니다.
+
+선택에 따라 파일을 생성한다:
+
+```bash
+mkdir -p .claude
+cat > .claude/voice-transcriber.local.md << 'LOCALEOF'
+---
+asr_mode: server
+---
+LOCALEOF
+```
+
+(`server` 또는 `cli`를 사용자 선택에 따라 기입)
+
+**파일이 이미 있으면** 이 단계를 건너뛴다.
+
 ### Step 1: 소스 확인 및 파일 획득
 
 메시지 소스에 따라 오디오 파일을 획득한다.
@@ -160,26 +185,6 @@ reply(chat_id=<chat_id>, body="전사가 완료되었습니다.", files=["/tmp/r
 
 **Claude Code 직접 파일인 경우:**
 저장 경로를 텍스트로 안내한다.
-
-## ASR 상주 서버 (선택사항)
-
-전사 속도를 높이려면 ASR 상주 서버를 띄울 수 있다. 모델을 메모리에 올려두고 재사용하여 매 전사마다 모델 로딩(~5초)을 생략한다.
-
-**서버 시작:**
-```bash
-~/.venvs/voice-transcriber/bin/python ${CLAUDE_PLUGIN_ROOT}/scripts/asr-server.py --port 8787
-```
-
-**동작 방식:**
-- `transcribe.sh`가 실행 시 먼저 `http://127.0.0.1:8787/health`를 체크
-- 서버가 돌고 있으면 HTTP 요청으로 빠른 전사 (일반: 2~4초, 화자구분: 5~10초)
-- 서버가 없으면 기존 CLI 방식으로 자동 fallback (8~10초)
-- 화자구분(--diarize) 모드도 서버 지원 (diarize, num_speakers 파라미터)
-
-**참고:**
-- 서버는 RAM 약 4~5GB 점유
-- 세션 종료 시 서버도 함께 종료됨
-- 모델 첫 로딩에 약 20초 소요
 
 ## Error Handling
 

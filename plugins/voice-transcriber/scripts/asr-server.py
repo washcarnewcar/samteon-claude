@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
-mlx-qwen3-asr 상주 HTTP 서버
+mlx-qwen3-asr 상주 HTTP 서버 (idle timeout 지원)
+
 모델을 메모리에 올려두고 요청마다 재사용하여 전사 속도를 높인다.
+일정 시간 요청이 없으면 모델을 자동 언로드하여 GPU 메모리를 해제한다.
 
 Usage:
-    python asr-server.py [--port 8787] [--model Qwen/Qwen3-ASR-1.7B]
+    python asr-server.py [--port 8787] [--model Qwen/Qwen3-ASR-1.7B] [--idle-timeout 300]
 
 API:
     POST /transcribe
@@ -17,38 +19,68 @@ API:
     Response: {"text": "...", "speaker_segments": [...], "duration_sec": 12.5}
 
     GET /health
-    Response: {"status": "ok", "model": "Qwen/Qwen3-ASR-1.7B"}
+    Response: {"status": "ok", "model": "...", "model_loaded": true, "idle_remaining_sec": 120}
 """
 
+import atexit
+import gc
 import json
-import time
+import os
+import signal
 import sys
+import time
 import argparse
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-# mlx-qwen3-asr imports
 import mlx.core as mx
-import mlx_qwen3_asr as asr
+
+PID_FILE = "/tmp/asr-server.pid"
 
 
 class ASRSession:
-    """모델을 한 번만 로드하고 재사용"""
+    """모델 load/unload를 관리하는 세션"""
+
     def __init__(self, model_name: str, dtype=mx.bfloat16):
-        print(f"[ASR] 모델 로딩 중: {model_name} (dtype={dtype})")
-        t0 = time.time()
-        self.session = asr.Session(model=model_name, dtype=dtype)
         self.model_name = model_name
+        self.dtype = dtype
+        self._session = None
+        self.load()
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._session is not None
+
+    def load(self):
+        if self._session is not None:
+            return
+        import mlx_qwen3_asr as asr
+        print(f"[ASR] 모델 로딩 중: {self.model_name} (dtype={self.dtype})", flush=True)
+        t0 = time.time()
+        self._session = asr.Session(model=self.model_name, dtype=self.dtype)
         elapsed = time.time() - t0
-        print(f"[ASR] 모델 로딩 완료 ({elapsed:.1f}초)")
+        print(f"[ASR] 모델 로딩 완료 ({elapsed:.1f}초)", flush=True)
+
+    def unload(self):
+        if self._session is None:
+            return
+        print("[ASR] 모델 언로드 중...", flush=True)
+        del self._session
+        self._session = None
+        gc.collect()
+        mx.clear_cache()
+        print("[ASR] 모델 언로드 완료 (GPU 메모리 해제)", flush=True)
 
     def transcribe(self, audio_path: str, language: str = "Korean",
                    diarize: bool = False, num_speakers: int = None) -> dict:
+        self.load()
+
         kwargs = dict(language=language, diarize=diarize)
         if diarize and num_speakers:
             kwargs["diarization_num_speakers"] = num_speakers
 
-        result = self.session.transcribe(audio_path, **kwargs)
+        result = self._session.transcribe(audio_path, **kwargs)
 
         # 텍스트 추출
         text = ""
@@ -86,8 +118,11 @@ class ASRSession:
         return response
 
 
-# 전역 세션 (서버 시작 시 초기화)
+# 전역 상태
 _asr_session: ASRSession = None
+_last_activity: float = 0.0
+_idle_timeout: int = 300
+_lock = threading.Lock()
 
 
 class ASRHandler(BaseHTTPRequestHandler):
@@ -99,14 +134,19 @@ class ASRHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
+            elapsed = time.time() - _last_activity
+            remaining = max(0, _idle_timeout - elapsed)
             self._send_json(200, {
                 "status": "ok",
-                "model": _asr_session.model_name if _asr_session else "not loaded"
+                "model": _asr_session.model_name if _asr_session else "not loaded",
+                "model_loaded": _asr_session.is_loaded if _asr_session else False,
+                "idle_remaining_sec": round(remaining),
             })
         else:
             self._send_json(404, {"error": f"Not found: {self.path}"})
 
     def _handle_transcribe(self):
+        global _last_activity
         try:
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -125,12 +165,18 @@ class ASRHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": f"File not found: {audio_path}"})
                 return
 
+            with _lock:
+                _last_activity = time.time()
+
             t0 = time.time()
             result = _asr_session.transcribe(
                 audio_path, language=language,
                 diarize=diarize, num_speakers=num_speakers
             )
             elapsed = time.time() - t0
+
+            with _lock:
+                _last_activity = time.time()
 
             result["duration_sec"] = round(elapsed, 2)
             self._send_json(200, result)
@@ -149,23 +195,63 @@ class ASRHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format, *args):
-        # 요청 로그를 stderr로 간결하게
         sys.stderr.write(f"[ASR] {args[0]} {args[1]} {args[2]}\n")
 
 
+def _idle_watchdog(session: ASRSession, timeout: int):
+    """30초마다 체크, 유휴 시간 초과 시 모델 언로드"""
+    global _last_activity
+    while True:
+        time.sleep(30)
+        with _lock:
+            idle = time.time() - _last_activity
+        if idle >= timeout and session.is_loaded:
+            print(f"[ASR] {timeout}초 유휴 — 모델 언로드", flush=True)
+            session.unload()
+
+
+def _write_pid():
+    with open(PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def _remove_pid():
+    try:
+        os.remove(PID_FILE)
+    except OSError:
+        pass
+
+
 def main():
-    global _asr_session
+    global _asr_session, _last_activity, _idle_timeout
 
     parser = argparse.ArgumentParser(description="mlx-qwen3-asr HTTP server")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument("--model", default="Qwen/Qwen3-ASR-1.7B")
+    parser.add_argument("--idle-timeout", type=int, default=300,
+                        help="모델 언로드까지 유휴 시간 (초, 기본 300)")
     args = parser.parse_args()
+
+    _idle_timeout = args.idle_timeout
+    _last_activity = time.time()
+
+    _write_pid()
+    atexit.register(_remove_pid)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
     _asr_session = ASRSession(args.model)
 
-    server = HTTPServer(("127.0.0.1", args.port), ASRHandler)
-    print(f"[ASR] 서버 시작: http://127.0.0.1:{args.port}")
-    print(f"[ASR] POST /transcribe  |  GET /health")
+    watchdog = threading.Thread(
+        target=_idle_watchdog,
+        args=(_asr_session, _idle_timeout),
+        daemon=True,
+    )
+    watchdog.start()
+
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), ASRHandler)
+    print(f"[ASR] 서버 시작: http://127.0.0.1:{args.port}", flush=True)
+    print(f"[ASR] POST /transcribe  |  GET /health", flush=True)
+    print(f"[ASR] 유휴 타임아웃: {_idle_timeout}초", flush=True)
 
     try:
         server.serve_forever()

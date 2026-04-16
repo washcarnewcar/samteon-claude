@@ -8,6 +8,10 @@ trap 'kill 0 2>/dev/null' TERM INT
 #   transcribe.sh --diarize <audio_file>                              # 화자구분 전사 (자동 감지)
 #   transcribe.sh --diarize --num-speakers <N> <audio_file>           # 화자구분 전사 (화자 수 지정)
 #   transcribe.sh --diarize --output <dir> <audio_file>               # 출력 디렉토리 지정
+#
+# asr_mode 설정 (.claude/voice-transcriber.local.md):
+#   server — 상주 서버 사용 (5분 유휴 시 모델 자동 언로드)
+#   cli    — 매번 CLI 실행 (기본값)
 
 DIARIZE=false
 OUTPUT_DIR=""
@@ -77,6 +81,96 @@ if [ "$DIARIZE" = false ] && [ -n "$NUM_SPEAKERS" ]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-$HOME/.venvs/voice-transcriber/bin/python}"
+
+# --- 설정 읽기 ---
+ASR_MODE="cli"
+LOCAL_MD=".claude/voice-transcriber.local.md"
+if [ -f "$LOCAL_MD" ]; then
+  MODE_VAL=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$LOCAL_MD" | grep '^asr_mode:' | sed 's/asr_mode: *//' | sed 's/^"\(.*\)"$/\1/' || true)
+  if [ -n "$MODE_VAL" ]; then
+    ASR_MODE="$MODE_VAL"
+  fi
+fi
+
+# ============================================================
+#  SERVER 모드
+# ============================================================
+if [ "$ASR_MODE" = "server" ]; then
+  ASR_PORT="${ASR_PORT:-8787}"
+  ASR_URL="http://127.0.0.1:${ASR_PORT}"
+
+  # 서버 생존 확인, 없으면 시작
+  if ! curl -sf "${ASR_URL}/health" >/dev/null 2>&1; then
+    echo "[transcribe] ASR 서버 시작 중..." >&2
+    nohup "$PYTHON_BIN" "$SCRIPT_DIR/asr-server.py" --port "$ASR_PORT" \
+      >/tmp/asr-server.log 2>&1 &
+    # 최대 60초 대기
+    for i in $(seq 1 60); do
+      if curl -sf "${ASR_URL}/health" >/dev/null 2>&1; then
+        echo "[transcribe] ASR 서버 준비 완료 (${i}초)" >&2
+        break
+      fi
+      if [ "$i" -eq 60 ]; then
+        echo "ERROR: ASR 서버 시작 타임아웃 (60초). 로그: /tmp/asr-server.log" >&2
+        exit 1
+      fi
+      sleep 1
+    done
+  fi
+
+  # JSON body 구성
+  JSON_BODY="{\"audio_path\":\"${AUDIO_PATH}\",\"language\":\"${LANGUAGE}\",\"diarize\":${DIARIZE}"
+  if [ "$DIARIZE" = true ] && [ -n "$NUM_SPEAKERS" ]; then
+    JSON_BODY="${JSON_BODY},\"num_speakers\":${NUM_SPEAKERS}"
+  fi
+  JSON_BODY="${JSON_BODY}}"
+
+  # 전사 요청
+  RESPONSE=$(curl -sf --max-time 600 -X POST "${ASR_URL}/transcribe" \
+    -H "Content-Type: application/json" \
+    -d "$JSON_BODY")
+
+  # 에러 체크
+  ERROR=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('error',''))" 2>/dev/null || true)
+  if [ -n "$ERROR" ]; then
+    echo "ERROR: $ERROR" >&2
+    exit 1
+  fi
+
+  if [ "$DIARIZE" = true ]; then
+    # 화자구분: JSON → 파일 저장 → format-transcript.py
+    if [ -z "$OUTPUT_DIR" ]; then
+      OUTPUT_DIR=$(mktemp -d)
+    fi
+    mkdir -p "$OUTPUT_DIR"
+
+    AUDIO_BASE=$(basename "$AUDIO_PATH")
+    AUDIO_STEM="${AUDIO_BASE%.*}"
+    JSON_PATH="$OUTPUT_DIR/${AUDIO_STEM}.json"
+
+    # 서버 응답에서 speaker_segments → segments로 변환하여 저장
+    echo "$RESPONSE" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+out = {'text': d.get('text', ''), 'segments': d.get('speaker_segments', [])}
+json.dump(out, sys.stdout, ensure_ascii=False)
+" > "$JSON_PATH"
+
+    "$PYTHON_BIN" "$SCRIPT_DIR/format-transcript.py" "$JSON_PATH"
+  else
+    # 일반 전사: text 추출 → stdout
+    echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('text',''))"
+  fi
+
+  exit 0
+fi
+
+# ============================================================
+#  CLI 모드 (기본값)
+# ============================================================
+
 # mlx-qwen3-asr 경로 탐색
 MLX_ASR_BIN="${MLX_ASR_BIN:-}"
 if [ -z "$MLX_ASR_BIN" ]; then
@@ -94,71 +188,7 @@ if [ ! -x "$MLX_ASR_BIN" ]; then
   exit 1
 fi
 
-# ASR 상주 서버 체크
-ASR_PORT="${ASR_PORT:-8787}"
-ASR_URL="http://127.0.0.1:${ASR_PORT}"
-
-if curl -sf "${ASR_URL}/health" > /dev/null 2>&1; then
-  # 서버가 돌고 있으면 HTTP 요청 (빠른 경로)
-  ABS_AUDIO="$(cd "$(dirname "$AUDIO_PATH")" && pwd)/$(basename "$AUDIO_PATH")"
-
-  # JSON body 구성
-  JSON_BODY="{\"audio_path\": \"${ABS_AUDIO}\", \"language\": \"${LANGUAGE}\""
-  if [ "$DIARIZE" = true ]; then
-    JSON_BODY="${JSON_BODY}, \"diarize\": true"
-    if [ -n "$NUM_SPEAKERS" ]; then
-      JSON_BODY="${JSON_BODY}, \"num_speakers\": ${NUM_SPEAKERS}"
-    fi
-  fi
-  JSON_BODY="${JSON_BODY}}"
-
-  RESPONSE=$(curl -sf -X POST "${ASR_URL}/transcribe" \
-    -H "Content-Type: application/json" \
-    -d "$JSON_BODY")
-
-  if [ "$DIARIZE" = true ]; then
-    # 화자구분: JSON → txt 변환
-    if [ -z "$OUTPUT_DIR" ]; then
-      OUTPUT_DIR=$(mktemp -d)
-    fi
-    mkdir -p "$OUTPUT_DIR"
-
-    AUDIO_BASE=$(basename "$AUDIO_PATH")
-    AUDIO_STEM="${AUDIO_BASE%.*}"
-    TXT_PATH="$OUTPUT_DIR/${AUDIO_STEM}.txt"
-
-    echo "$RESPONSE" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-segments = data.get('speaker_segments', [])
-if segments:
-    # 화자 라벨을 참석자 N 형태로 변환
-    speakers = {}
-    counter = 1
-    lines = []
-    for seg in segments:
-        spk = seg['speaker']
-        if spk not in speakers:
-            speakers[spk] = f'참석자 {counter}'
-            counter += 1
-        lines.append(f\"{speakers[spk]}: {seg['text']}\")
-    print('\n'.join(lines))
-else:
-    print(data.get('text', ''))
-" > "$TXT_PATH"
-
-    # 감지된 화자 수 출력
-    SPEAKER_COUNT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(set(s['speaker'] for s in d.get('speaker_segments',[]))))")
-    echo "감지된 화자: ${SPEAKER_COUNT}명" >&2
-    echo "$TXT_PATH"
-  else
-    # 일반 전사: 텍스트만 출력
-    echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['text'])"
-  fi
-  exit 0
-fi
-
-# 공통 인자 (CLI fallback)
+# 공통 인자
 MODEL="Qwen/Qwen3-ASR-1.7B"
 DTYPE="bfloat16"
 COMMON_ARGS=(--model "$MODEL" --dtype "$DTYPE" --language "$LANGUAGE" --no-progress)
@@ -201,8 +231,6 @@ if [ "$DIARIZE" = true ]; then
   fi
 
   # JSON → 포맷팅된 txt 변환
-  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  PYTHON_BIN="${PYTHON_BIN:-$HOME/.venvs/voice-transcriber/bin/python}"
   "$PYTHON_BIN" "$SCRIPT_DIR/format-transcript.py" "$JSON_PATH"
 else
   # 기존 동작: stdout 텍스트 출력

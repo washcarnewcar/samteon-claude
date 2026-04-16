@@ -1,7 +1,7 @@
 {
   "name": "voice-transcriber",
-  "version": "2.2.2",
-  "description": "음성 메시지 전사 + 화자 분리 지원 (Discord/Telegram/직접 파일, Qwen3-ASR MLX)",
+  "version": "2.3.0",
+  "description": "음성 메시지 전사 + 화자 분리 지원 (Discord/Telegram/직접 파일, Qwen3-ASR MLX). server/cli 모드, 5분 유휴 시 모델 자동 언로드.",
   "author": {
     "name": "이정윤",
     "email": "solstice@samton.co.kr"
