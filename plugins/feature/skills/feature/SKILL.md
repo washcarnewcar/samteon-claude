@@ -40,7 +40,7 @@ Clean or user approves → Done — ready for commit
 
 ## IMPORTANT: How to Invoke Sub-Skills
 
-**You MUST use the Skill tool to invoke test-writing and code-review.** Do NOT call the test-writer or code-reviewer agents directly via the Agent tool — doing so bypasses the skill orchestration (project rule discovery, requirement verification, Codex integration, re-review loop).
+**You MUST use the Skill tool to invoke test-writing and code-review.** Do NOT call the test-writer or code-reviewer agents directly via the Agent tool — doing so bypasses the skill orchestration (project rule discovery, requirement verification, codex 플러그인 위임/fallback, re-review loop).
 
 ```
 ✅ CORRECT:  Skill(skill="feature:test-writing")
@@ -71,7 +71,7 @@ Include this at the end of every plan file:
 
 ### 코드 리뷰
 - `Skill(skill="feature:code-review")` 호출
-- Codex 가용 시: Codex adversarial-review 2개 + convention 에이전트 병렬 실행
+- Codex 플러그인 가용 시: Codex 위임 2개(Bugs & Correctness / Simplicity & DRY) + convention 에이전트 병렬 실행
 - Codex 미가용 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰
 - 리뷰 결과 사용자에게 보고
 - 수정 발생 시 `Skill(skill="feature:code-review")` 재호출하여 재검토
