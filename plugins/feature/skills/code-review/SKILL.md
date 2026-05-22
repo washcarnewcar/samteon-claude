@@ -15,7 +15,7 @@ allowed-tools: Task, Bash, Glob, Grep, Read, Edit, TodoWrite, WebSearch
 
 # Code Review
 
-You orchestrate a thorough code review by combining automated checks with parallel **code-reviewer agents**, each bringing a different perspective. This catches issues that a single reviewer would miss.
+You orchestrate a thorough code review by combining automated checks with parallel reviewers, each bringing a different perspective. This catches issues that a single reviewer would miss.
 
 ## Process
 
@@ -23,28 +23,28 @@ You orchestrate a thorough code review by combining automated checks with parall
 
 Determine whether to use Codex-powered reviews or fall back to agent-only mode.
 
-**Step 1 — Check codex plugin install + codex CLI auth:**
+**Step 1 — Check the codex CLI is installed and authenticated:**
 ```bash
-test -f ~/.claude/plugins/marketplaces/openai-codex/plugins/codex/.claude-plugin/plugin.json && echo "plugin: installed" || echo "plugin: not installed"
+command -v codex >/dev/null 2>&1 && echo "cli: installed" || echo "cli: not installed"
 test -s ~/.codex/auth.json && echo "auth: ok" || echo "auth: missing"
 ```
 
-`~/.codex/auth.json`은 codex CLI 자체의 표준 인증 파일 위치이므로 codex 플러그인의 내부 계약에 의존하지 않는다. `test -s`로 파일 존재 + 크기 > 0을 함께 검사해 빈 파일을 인증된 것으로 오인하지 않게 한다. 파일 내용이 stale·invalid한 경우는 Phase 0에서 잡지 못하지만, Phase 4 Fallback rule이 실제 호출 실패를 잡아 해당 reviewer 자리만 LEGACY 에이전트로 대체한다.
+This depends only on the `codex` CLI. `~/.codex/auth.json` is the codex CLI's standard auth file. `test -s` checks the file exists and is non-empty so an empty file is not mistaken for valid auth. A stale/invalid token is not caught here, but the Phase 4 Fallback rule catches the actual call failure and replaces only that reviewer slot with a LEGACY agent.
 
 **Step 2 — Determine mode and announce:**
 
-| plugin | auth | Mode |
+| codex CLI | auth | Mode |
 |---|---|---|
 | installed | ok | **CODEX_MODE** |
 | installed | missing | **LEGACY_MODE** (인증 미완료) |
 | not installed | — | **LEGACY_MODE** (미설치) |
 
 Announce:
-- CODEX_MODE: `"Codex 플러그인 감지 + 인증 확인 → CODEX_MODE로 실행 (codex adversarial-review 2개 직접 호출 + convention 에이전트)"`
-- LEGACY_MODE (미설치): `"Codex 플러그인 미설치 → LEGACY_MODE로 실행 (code-reviewer 에이전트 3개 병렬)"`
-- LEGACY_MODE (인증 미완료): `"Codex 플러그인 설치됨, 인증 미완료 → LEGACY_MODE로 실행"`
+- CODEX_MODE: `"codex CLI 감지 + 인증 확인 → CODEX_MODE로 실행 (codex exec review 2개 + convention 에이전트)"`
+- LEGACY_MODE (미설치): `"codex CLI 미설치 → LEGACY_MODE로 실행 (code-reviewer 에이전트 3개 병렬)"`
+- LEGACY_MODE (인증 미완료): `"codex CLI 설치됨, 인증 미완료 → LEGACY_MODE로 실행"`
 
-CODEX_MODE에서 Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex-companion.mjs adversarial-review`를 호출한다 (서브에이전트 위임 X). 호출 경로는 `~/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs` 고정. marketplace name이 다른 환경에서는 Phase 0 검사가 미설치로 떨어져 자연스럽게 LEGACY_MODE로 fallback된다.
+CODEX_MODE에서 Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X).
 
 ### Phase 1: Discover Project Conventions
 
@@ -98,22 +98,30 @@ Not every flagged file needs changing — this is a reminder to check, not an er
 
 #### CODEX_MODE
 
-3개 리뷰어를 **한 응답 메시지에서 동시 시작**한다. Reviewer A·B는 메인이 직접 `Bash`로 codex CLI를 호출(서브에이전트 위임 X), Reviewer C는 `feature:code-reviewer` 에이전트.
+Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X). Reviewer C는 `feature:code-reviewer` 에이전트.
 
-`adversarial-review`는 codex가 자체적으로 git working-tree를 자동 수집하고 read-only sandbox에서 실행되므로, 메인이 따로 changed files 리스트나 "do not edit" 같은 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다.
+`codex exec review --uncommitted`는 codex가 working-tree 변경(staged + unstaged + untracked)을 자동 수집해 read-only로 리뷰하므로, 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
 
-**한 응답 메시지에 다음 3개 tool call을 함께 발사 (진짜 병렬):**
+**Step 1 — 리뷰 결과를 받을 임시 디렉터리를 repo 밖에 만든다:**
+```bash
+mktemp -d
+```
+출력된 경로를 `REVIEW_DIR`로 쓴다. **반드시 repo working tree 밖**이어야 한다 — `codex exec review --uncommitted`가 untracked 파일까지 리뷰 대상에 넣으므로, 리뷰 결과 파일을 repo 안에 두면 다른 reviewer가 그 파일을 변경분으로 오인해 리뷰한다.
+
+**Step 2 — 한 응답 메시지에 다음 3개 tool call을 함께 발사 (진짜 병렬):**
+
+`codex exec review`의 `-o <FILE>`는 codex의 **최종 리뷰 메시지만** 그 파일에 기록한다 — 탐색·도구호출 로그는 stdout으로만 흐르고 파일엔 안 들어간다. 메인은 stdout을 무시하고 `-o` 파일만 Read로 읽으면 깨끗한 리뷰 결과만 얻는다. (`<REVIEW_DIR>`는 Step 1에서 받은 실제 경로로 치환.)
 
 ```
 Bash(
-  command: `node "/Users/solstice/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs" adversarial-review "<reviewer_a_focus>"`,
-  description: "Codex adversarial-review (Bugs)",
+  command: `codex exec review --uncommitted -o "<REVIEW_DIR>/bugs.md" "<reviewer_a_focus>"`,
+  description: "Codex review (Bugs)",
   run_in_background: true
 )
 
 Bash(
-  command: `node "/Users/solstice/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs" adversarial-review "<reviewer_b_focus>"`,
-  description: "Codex adversarial-review (Simplicity)",
+  command: `codex exec review --uncommitted -o "<REVIEW_DIR>/simplicity.md" "<reviewer_b_focus>"`,
+  description: "Codex review (Simplicity)",
   run_in_background: true
 )
 
@@ -124,7 +132,7 @@ Agent(
 )
 ```
 
-Bash 2개는 자동 완료 알림 후 다음 턴에 stdout을 회수, Agent는 동기 결과로 즉시 리턴된다.
+Bash 2개는 자동 완료 알림 후 다음 턴에 `-o` 파일을 Read로 회수, Agent는 동기 결과로 즉시 리턴된다.
 
 **Reviewer A focus text (Bugs & Correctness):**
 ```
@@ -165,13 +173,13 @@ Check every rule against the actual code. Flag violations with exact file:line r
 Changed files: [list from git diff]
 ```
 
-**Fallback rule** — codex Bash 호출이 non-zero exit이거나 stdout이 비어 있으면 **실패한 reviewer 자리만 LEGACY의 동등 에이전트로 대체**한다 (role-level 대체로 일관 처리):
+**Fallback rule** — codex 호출이 (a) Bash non-zero exit이거나 (b) `-o` 파일이 없거나 비어 있으면(codex가 최종 리뷰를 끝까지 못 낸 경우), **실패한 reviewer 자리만 LEGACY의 동등 에이전트로 대체**한다 (role-level 대체로 일관 처리):
 
 - Reviewer A(Bugs & Correctness) 실패 → LEGACY Agent 2(Bugs & Correctness)로 대체
 - Reviewer B(Simplicity & DRY) 실패 → LEGACY Agent 1(Simplicity & DRY)로 대체
 - A·B 둘 다 실패하면 둘 다 대체
 
-성공한 codex 결과는 그대로 활용한다. Reviewer C(convention)는 codex와 무관하게 항상 동일 동작이라 fallback 영향이 없다.
+성공한 codex 결과(`-o` 파일)는 그대로 활용한다. Reviewer C(convention)는 codex와 무관하게 항상 동일 동작이라 fallback 영향이 없다.
 
 announce 예시:
 - 하나만 실패: `"Codex Reviewer X 실패 → 해당 부분만 LEGACY 에이전트로 대체합니다."`
@@ -229,14 +237,13 @@ Combine findings from all sources:
    - **Suggestion**: Could fix — minor improvements, style preferences
 
 3. **Codex output mapping** (CODEX_MODE only):
-   - Codex `adversarial-review`는 stdout으로 markdown 리뷰 결과를 반환한다. focus text가 요청한 `<file:line> — <severity> — <issue>` 형식이 지켜지면 그대로 파싱.
+   - 각 codex reviewer 결과는 `REVIEW_DIR`의 `-o` 파일(`bugs.md` / `simplicity.md`)에 있다 — codex의 최종 리뷰 메시지만 담긴 깨끗한 markdown이다. Read로 읽는다. stdout(진행 로그)은 무시한다.
    - **Severity 토큰이 응답에 있는 경우** — 키워드 매핑: `critical`/`high`/`severe` → 🔴 Critical, `warning`/`medium`/`moderate` → ⚠️ Warning, `suggestion`/`low`/`minor`/`nit` → 💡 Suggestion
    - **Severity 토큰이 없는 경우** — issue content에서 추론한다 (confidence filter를 이미 통과한 상태이므로 finding 자체는 신뢰 가능):
      - 보안 이슈, 논리 오류, race condition, null deref, 데이터 손실 가능성 → 🔴 Critical
      - 에러 처리 부재, 미커버 edge case, 잠재적 버그, 자원 누수 → ⚠️ Warning
      - unused import, 스타일, nit, 작은 중복, 네이밍 → 💡 Suggestion
      - content로도 추론이 어려울 만큼 모호하면 ⚠️ Warning (자동 수정 비용을 고려한 절충)
-   - **응답 형식 불일치 처리**: 응답이 요청 형식을 따르지 않으면 best-effort로 file:line·severity 키워드를 추출. 추출 가능한 finding은 정상 처리. 추출 불가한 자유 텍스트 응답은 별도 ⚠️ Warning 항목 `Codex 응답 (형식 불일치)`로 보고하고 사용자가 직접 판단하도록 한다 (자동 분류 금지).
    - 각 finding의 source에 "(Codex)" suffix를 추가해 추적성 확보
    - Deduplicate: 두 Codex reviewer가 같은 file:line을 지적하면 더 높은 severity 유지
 
@@ -292,13 +299,13 @@ When the user chooses "수정해줘":
 1. Fix all reported Critical and Warning issues
 2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
 3. **Re-run from Phase 4**: Launch reviewers again with the updated code
-   - In CODEX_MODE: codex Bash 호출 2개 + convention 에이전트를 다시 실행
-     - 각 adversarial-review focus text 끝에 다음 문장을 append: `Also verify these previously reported issues are resolved: [issue list]`
+   - In CODEX_MODE: `codex exec review` 2개 + convention 에이전트를 다시 실행한다. 결과는 **새 임시 디렉터리**(`mktemp -d` 재실행) 또는 새 파일명(예: `bugs-round2.md`)에 받아 이전 라운드 결과를 덮지 않게 한다.
+     - 각 reviewer focus text 끝에 다음 문장을 append: `Also verify these previously reported issues are resolved: [issue list]`
    - In LEGACY_MODE: 3개 code-reviewer 에이전트 재실행
    - ALL reviewers receive: (a) the list of previously reported issues to verify resolution, (b) instruction to check for new issues introduced by the fixes
 4. Consolidate results (Phase 5) and run build verification (Phase 6)
 5. If new issues are found → present them → fix → **re-review again** (repeat this loop)
-6. If no Critical/Warning issues remain → announce: "재검토 완료 — 모든 이슈가 해결되었습니다."
+6. If no Critical/Warning issues remain → announce: "재검토 완료 — 모든 이슈가 해결되었습니다." 그리고 이 리뷰 사이클에서 만든 `REVIEW_DIR`(들)을 `rm -rf`로 정리한다.
 
 ```
 Fix → Re-review → More issues? → Fix → Re-review → Clean? → Done

@@ -117,7 +117,7 @@ Then invoke the code-review skill using the Skill tool:
 Skill(skill="feature:code-review")
 ```
 
-Do NOT call code-reviewer agents directly via the Agent tool — the skill handles orchestration, project rule discovery, and codex 플러그인 위임/fallback.
+Do NOT call code-reviewer agents directly via the Agent tool — the skill handles orchestration, project rule discovery, and codex CLI 위임/fallback.
 
 ## Communication
 
