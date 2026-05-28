@@ -100,13 +100,15 @@ Not every flagged file needs changing — this is a reminder to check, not an er
 
 Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X). Reviewer C는 `feature:code-reviewer` 에이전트.
 
-`codex exec review --uncommitted`는 codex가 working-tree 변경(staged + unstaged + untracked)을 자동 수집해 read-only로 리뷰하므로, 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
+`codex exec review`는 default로 working-tree 변경(changed or added files)을 자동 수집해 read-only로 리뷰하므로, 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
+
+**중요 — `--uncommitted` 같은 review-target 옵션은 사용 금지**: codex CLI 0.133.0+ 부터 `--uncommitted` / `--base` / `--commit` 같은 review 대상 옵션은 inline `[PROMPT]` 와 mutually exclusive (`error: the argument '--uncommitted' cannot be used with '[PROMPT]'`). focus 차별화를 위해 PROMPT를 인자로 넘기는 본 스킬에서는 옵션을 빼고 default 동작(working-tree 자동 감지)에 맡긴다.
 
 **Step 1 — 리뷰 결과를 받을 임시 디렉터리를 repo 밖에 만든다:**
 ```bash
 mktemp -d
 ```
-출력된 경로를 `REVIEW_DIR`로 쓴다. **반드시 repo working tree 밖**이어야 한다 — `codex exec review --uncommitted`가 untracked 파일까지 리뷰 대상에 넣으므로, 리뷰 결과 파일을 repo 안에 두면 다른 reviewer가 그 파일을 변경분으로 오인해 리뷰한다.
+출력된 경로를 `REVIEW_DIR`로 쓴다. **반드시 repo working tree 밖**이어야 한다 — codex의 default review가 untracked 파일까지 리뷰 대상에 넣으므로, 리뷰 결과 파일을 repo 안에 두면 다른 reviewer가 그 파일을 변경분으로 오인해 리뷰한다.
 
 **Step 2 — 한 응답 메시지에 다음 3개 tool call을 함께 발사 (진짜 병렬):**
 
@@ -114,13 +116,13 @@ mktemp -d
 
 ```
 Bash(
-  command: `codex exec review --uncommitted -o "<REVIEW_DIR>/bugs.md" "<reviewer_a_focus>"`,
+  command: `codex exec review -o "<REVIEW_DIR>/bugs.md" "<reviewer_a_focus>"`,
   description: "Codex review (Bugs)",
   run_in_background: true
 )
 
 Bash(
-  command: `codex exec review --uncommitted -o "<REVIEW_DIR>/simplicity.md" "<reviewer_b_focus>"`,
+  command: `codex exec review -o "<REVIEW_DIR>/simplicity.md" "<reviewer_b_focus>"`,
   description: "Codex review (Simplicity)",
   run_in_background: true
 )
