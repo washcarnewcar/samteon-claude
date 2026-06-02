@@ -143,13 +143,25 @@ class WhisperEngine:
         import mlx_whisper
 
         code = lang_to_code(language)
-        result = mlx_whisper.transcribe(
-            audio_path,
-            path_or_hf_repo=self.model_name,
-            language=code,
-            word_timestamps=diarize,
-            verbose=None,
-        )
+        # 환각(hallucination) 억제 옵션.
+        # mlx-whisper 기본값(condition_on_previous_text=True)은 무음·노이즈 구간에서
+        # 직전 텍스트를 반복 생성하는 환각을 길게 만든다("mem mem ...", 동일 토큰 반복).
+        # 직전 텍스트 조건화를 끄고 무음/품질 임계값을 함께 적용해 반복 폭주를 막는다.
+        decode_opts = {
+            "path_or_hf_repo": self.model_name,
+            "language": code,
+            "word_timestamps": diarize,
+            "verbose": None,
+            "condition_on_previous_text": False,
+            "compression_ratio_threshold": 2.4,
+            "logprob_threshold": -1.0,
+            "no_speech_threshold": 0.6,
+            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
+        }
+        # hallucination_silence_threshold는 word_timestamps=True(=diarize)일 때만 동작한다.
+        if diarize:
+            decode_opts["hallucination_silence_threshold"] = 2.0
+        result = mlx_whisper.transcribe(audio_path, **decode_opts)
         self._loaded = True
 
         text = (result.get("text") or "").strip()
