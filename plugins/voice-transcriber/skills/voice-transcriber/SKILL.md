@@ -17,7 +17,13 @@ allowed-tools: Bash, Read, Write
 
 # Voice Transcriber
 
-음성/오디오 파일을 Qwen3-ASR (1.7B, MLX)로 전사한다. Apple Silicon에서 로컬로 동작하며 외부 API가 불필요하다.
+음성/오디오 파일을 로컬에서 전사한다. Apple Silicon에서 동작하며 외부 API가 불필요하다.
+
+**두 가지 전사 엔진**을 지원한다:
+- **whisper** — `whisper-large-v3-turbo` (MLX). 빠르고 가벼우며 한국어 품질이 우수하다. 화자구분은 pyannote로 처리한다. (기본값)
+- **qwen** — `Qwen3-ASR` (1.7B, MLX). 정확도가 높지만 무겁다.
+
+엔진 기본값은 `.claude/voice-transcriber.local.md`의 `asr_engine` 설정을 따른다. **Mode A(음성 입력)는 항상 whisper**를 사용한다.
 
 두 가지 모드를 지원한다:
 - **Mode A** — 음성을 사용자의 말로 취급하여 자연스럽게 응답
@@ -43,26 +49,33 @@ allowed-tools: Bash, Read, Write
 
 `.claude/voice-transcriber.local.md` 파일이 존재하는지 확인한다. (Bash로 `test -f .claude/voice-transcriber.local.md`)
 
-**파일이 없으면** 사용자에게 모드 선택을 질문한다:
+**파일이 없으면** 사용자에게 두 가지를 질문한다:
 
-> 음성 전사 모드를 선택해주세요:
-> - **server**: 모델을 메모리에 상주시켜 빠르게 전사합니다. 5분 유휴 시 모델을 자동 언로드하여 GPU 메모리를 해제합니다. (GPU 메모리 여유가 있는 경우 추천)
-> - **cli**: 요청마다 모델을 새로 로드합니다. 느리지만 메모리를 사용할 때만 점유합니다.
+1. **실행 모드** (`asr_mode`):
+   > 음성 전사 실행 모드를 선택해주세요:
+   > - **server**: 모델을 메모리에 상주시켜 빠르게 전사합니다. 5분 유휴 시 모델을 자동 언로드하여 GPU 메모리를 해제합니다. (GPU 메모리 여유가 있는 경우 추천)
+   > - **cli**: 요청마다 모델을 새로 로드합니다. 느리지만 메모리를 사용할 때만 점유합니다.
 
-선택에 따라 파일을 생성한다:
+2. **기본 엔진** (`asr_engine`) — Mode B(전사 서비스)에서 기본으로 쓸 엔진:
+   > 기본 전사 엔진을 선택해주세요:
+   > - **whisper**: whisper-large-v3-turbo. 빠르고 가벼우며 한국어 품질이 우수합니다. (추천)
+   > - **qwen**: Qwen3-ASR. 정확도가 높지만 무겁습니다.
+   >
+   > (Mode A 음성 입력은 설정과 무관하게 항상 whisper를 사용합니다. Mode B에서도 그때그때 "정확하게/Qwen으로" 또는 "빠르게/Whisper로" 요청하면 일시 전환됩니다.)
+
+선택에 따라 파일을 생성한다 (`asr_mode`, `asr_engine`을 사용자 선택값으로 기입):
 
 ```bash
 mkdir -p .claude
 cat > .claude/voice-transcriber.local.md << 'LOCALEOF'
 ---
 asr_mode: server
+asr_engine: whisper
 ---
 LOCALEOF
 ```
 
-(`server` 또는 `cli`를 사용자 선택에 따라 기입)
-
-**파일이 이미 있으면** 이 단계를 건너뛴다.
+**파일이 이미 있으면** 이 단계를 건너뛴다. (`asr_engine` 항목이 없는 구버전 설정이면 whisper로 간주된다.)
 
 ### Step 1: 소스 확인 및 파일 획득
 
@@ -103,8 +116,10 @@ mcp__plugin_telegram_telegram__download_attachment(file_id=<attachment_file_id>)
 - 일반 음성 메시지(~수 분): `timeout: 120000`
 - 긴 오디오(10분 이상): `run_in_background: true` 사용. 스크립트 자체에 시간 제한은 없다.
 
+Mode A는 항상 whisper 엔진을 사용한다 (`--engine whisper` 명시):
+
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh "<오디오_파일_경로>"
+bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh --engine whisper "<오디오_파일_경로>"
 ```
 
 전사된 텍스트를 사용자의 실제 메시지로 취급하고, 그 내용을 바탕으로 응답한다.
@@ -126,11 +141,17 @@ Mode B로 판별된 후, 전사를 실행하기 전에 사용자에게 질문한
    - 지원 언어: Korean, English, Chinese, Japanese, French, German, Spanish, Arabic, Hindi, Italian, Dutch, Portuguese, Russian, Turkish
    - 사용자가 명시하지 않으면 질문하지 않고 한국어로 진행
 
+**엔진 선택** (질문하지 않고 다음 규칙으로 결정):
+- 기본적으로 config의 `asr_engine` 값을 사용한다 → `transcribe.sh`에 `--engine`을 생략하면 config를 따른다.
+- 사용자가 "정확하게", "Qwen으로", "더 정확한 걸로" 등을 명시하면 → `--engine qwen`
+- 사용자가 "빠르게", "Whisper로", "가볍게" 등을 명시하면 → `--engine whisper`
+
 사용자 답변에 따른 분기:
 - 화자구분 불필요 → Step 3B-simple로 진행 (diarize 없이 일반 전사)
 - 화자구분 필요 + 인원 수 지정 → Step 3B로 진행 (`--num-speakers N` 포함)
 - 화자구분 필요 + 인원 모름 → Step 3B로 진행 (자동 감지)
 - 다른 언어 요청 시 → 모든 모드에서 `--language <LANG>` 추가
+- 엔진 일시 전환이 필요한 경우 → 모든 모드에서 `--engine <qwen|whisper>` 추가
 
 ### Step 3B-simple: 단순 전사 (화자구분 없음)
 
@@ -196,9 +217,11 @@ reply(chat_id=<chat_id>, body="전사가 완료되었습니다.", files=["/tmp/r
 
 | 상황 | 대응 |
 |------|------|
-| mlx-qwen3-asr 미설치 | 설치 안내 메시지 출력 (venv 생성 + pip install) |
-| diarize extras 미설치 | `~/.venvs/voice-transcriber/bin/python -m pip install "mlx-qwen3-asr[diarize]"` 실행 안내 |
-| HF_TOKEN 미설정 | Hugging Face 토큰 설정 안내 (`export HF_TOKEN=hf_...`) |
+| mlx-whisper 미설치 (whisper 엔진) | `VIRTUAL_ENV=~/.venvs/voice-transcriber uv pip install mlx-whisper` 실행 안내 |
+| pyannote.audio 미설치 (whisper 화자구분) | `VIRTUAL_ENV=~/.venvs/voice-transcriber uv pip install pyannote.audio` 실행 안내 |
+| mlx-qwen3-asr 미설치 (qwen 엔진) | 설치 안내 메시지 출력 (venv 생성 + pip install) |
+| diarize extras 미설치 (qwen 화자구분) | `~/.venvs/voice-transcriber/bin/python -m pip install "mlx-qwen3-asr[diarize]"` 실행 안내 |
+| HF_TOKEN 미설정 (화자구분) | `huggingface-cli login` 또는 `export HF_TOKEN=hf_...` 설정 안내 |
 | 오디오 파일 다운로드 실패 | 사용자에게 재전송 요청 |
 | 직접 첨부 파일 미존재 | 파일 경로 재확인 요청 |
 | 전사 결과가 빈 문자열 | 음성이 인식되지 않았음을 알리고 텍스트로 다시 보내달라고 요청 |

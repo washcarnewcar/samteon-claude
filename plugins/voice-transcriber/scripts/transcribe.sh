@@ -4,26 +4,40 @@ trap 'kill 0 2>/dev/null' TERM INT
 
 # Usage:
 #   transcribe.sh <audio_file>                                        # 일반 전사 (한국어, stdout 텍스트)
+#   transcribe.sh --engine whisper <audio_file>                       # 엔진 지정 (qwen | whisper)
 #   transcribe.sh --language English <audio_file>                     # 영어 전사
 #   transcribe.sh --diarize <audio_file>                              # 화자구분 전사 (자동 감지)
 #   transcribe.sh --diarize --num-speakers <N> <audio_file>           # 화자구분 전사 (화자 수 지정)
 #   transcribe.sh --diarize --output <dir> <audio_file>               # 출력 디렉토리 지정
 #
-# asr_mode 설정 (.claude/voice-transcriber.local.md):
-#   server — 상주 서버 사용 (5분 유휴 시 모델 자동 언로드)
-#   cli    — 매번 CLI 실행 (기본값)
+# 설정 (.claude/voice-transcriber.local.md):
+#   asr_mode:   server — 상주 서버 사용 (5분 유휴 시 모델 자동 언로드)
+#               cli    — 매번 CLI 실행 (기본값)
+#   asr_engine: qwen    — Qwen3-ASR (정확·무거움)
+#               whisper — whisper-large-v3-turbo (빠름·균형, 기본값)
+#
+# --engine 미지정 시 asr_engine 설정값을 따르며, 설정도 없으면 whisper.
 
 DIARIZE=false
 OUTPUT_DIR=""
 NUM_SPEAKERS=""
 LANGUAGE="Korean"
 AUDIO_PATH=""
+ENGINE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --diarize)
       DIARIZE=true
       shift
+      ;;
+    --engine)
+      if [[ $# -lt 2 ]]; then
+        echo "ERROR: --engine 옵션에 엔진명(qwen|whisper)이 필요합니다." >&2
+        exit 1
+      fi
+      ENGINE="$2"
+      shift 2
       ;;
     --output)
       if [[ $# -lt 2 ]]; then
@@ -86,13 +100,33 @@ PYTHON_BIN="${PYTHON_BIN:-$HOME/.venvs/voice-transcriber/bin/python}"
 
 # --- 설정 읽기 ---
 ASR_MODE="cli"
+CONFIG_ENGINE=""
 LOCAL_MD=".claude/voice-transcriber.local.md"
 if [ -f "$LOCAL_MD" ]; then
-  MODE_VAL=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$LOCAL_MD" | grep '^asr_mode:' | sed 's/asr_mode: *//' | sed 's/^"\(.*\)"$/\1/' || true)
+  FRONTMATTER=$(sed -n '/^---$/,/^---$/{ /^---$/d; p; }' "$LOCAL_MD")
+  MODE_VAL=$(echo "$FRONTMATTER" | grep '^asr_mode:' | sed 's/asr_mode: *//' | sed 's/^"\(.*\)"$/\1/' || true)
   if [ -n "$MODE_VAL" ]; then
     ASR_MODE="$MODE_VAL"
   fi
+  CONFIG_ENGINE=$(echo "$FRONTMATTER" | grep '^asr_engine:' | sed 's/asr_engine: *//' | sed 's/^"\(.*\)"$/\1/' || true)
 fi
+
+# --- 엔진 결정 (--engine > config asr_engine > whisper) ---
+if [ -z "$ENGINE" ]; then
+  ENGINE="${CONFIG_ENGINE:-whisper}"
+fi
+case "$ENGINE" in
+  qwen)
+    MODEL="Qwen/Qwen3-ASR-1.7B"
+    ;;
+  whisper)
+    MODEL="mlx-community/whisper-large-v3-turbo"
+    ;;
+  *)
+    echo "ERROR: 알 수 없는 엔진: $ENGINE (qwen 또는 whisper)" >&2
+    exit 1
+    ;;
+esac
 
 # ============================================================
 #  SERVER 모드
@@ -105,6 +139,7 @@ if [ "$ASR_MODE" = "server" ]; then
   if ! curl -sf "${ASR_URL}/health" >/dev/null 2>&1; then
     echo "[transcribe] ASR 서버 시작 중..." >&2
     nohup "$PYTHON_BIN" "$SCRIPT_DIR/asr-server.py" --port "$ASR_PORT" \
+      --default-engine "$ENGINE" \
       >/tmp/asr-server.log 2>&1 &
     # 최대 60초 대기
     for i in $(seq 1 60); do
@@ -121,7 +156,7 @@ if [ "$ASR_MODE" = "server" ]; then
   fi
 
   # JSON body 구성
-  JSON_BODY="{\"audio_path\":\"${AUDIO_PATH}\",\"language\":\"${LANGUAGE}\",\"diarize\":${DIARIZE}"
+  JSON_BODY="{\"audio_path\":\"${AUDIO_PATH}\",\"language\":\"${LANGUAGE}\",\"engine\":\"${ENGINE}\",\"diarize\":${DIARIZE}"
   if [ "$DIARIZE" = true ] && [ -n "$NUM_SPEAKERS" ]; then
     JSON_BODY="${JSON_BODY},\"num_speakers\":${NUM_SPEAKERS}"
   fi
@@ -168,8 +203,55 @@ json.dump(out, sys.stdout, ensure_ascii=False)
 fi
 
 # ============================================================
-#  CLI 모드 (기본값)
+#  CLI 모드
 # ============================================================
+
+# ------------------------------------------------------------
+#  WHISPER 엔진 (mlx-whisper + pyannote)
+# ------------------------------------------------------------
+if [ "$ENGINE" = "whisper" ]; then
+  if ! "$PYTHON_BIN" -c "import mlx_whisper" 2>/dev/null; then
+    echo "ERROR: mlx-whisper를 찾을 수 없습니다. 설치가 필요합니다:" >&2
+    echo "  VIRTUAL_ENV=\$HOME/.venvs/voice-transcriber uv pip install mlx-whisper" >&2
+    exit 1
+  fi
+
+  if [ "$DIARIZE" = true ]; then
+    if ! "$PYTHON_BIN" -c "import pyannote.audio" 2>/dev/null; then
+      echo "ERROR: 화자 분리(diarize)에 pyannote.audio가 필요합니다:" >&2
+      echo "  VIRTUAL_ENV=\$HOME/.venvs/voice-transcriber uv pip install pyannote.audio" >&2
+      exit 1
+    fi
+
+    if [ -z "$OUTPUT_DIR" ]; then
+      OUTPUT_DIR=$(mktemp -d)
+    fi
+    mkdir -p "$OUTPUT_DIR"
+
+    WHISPER_ARGS=(--language "$LANGUAGE" --model "$MODEL" --diarize -o "$OUTPUT_DIR")
+    if [ -n "$NUM_SPEAKERS" ]; then
+      WHISPER_ARGS+=(--num-speakers "$NUM_SPEAKERS")
+    fi
+    "$PYTHON_BIN" "$SCRIPT_DIR/transcribe-whisper.py" "${WHISPER_ARGS[@]}" "$AUDIO_PATH"
+
+    AUDIO_BASE=$(basename "$AUDIO_PATH")
+    AUDIO_STEM="${AUDIO_BASE%.*}"
+    JSON_PATH="$OUTPUT_DIR/${AUDIO_STEM}.json"
+    if [ ! -f "$JSON_PATH" ]; then
+      echo "ERROR: JSON 출력 파일을 찾을 수 없습니다: $OUTPUT_DIR" >&2
+      exit 1
+    fi
+    "$PYTHON_BIN" "$SCRIPT_DIR/format-transcript.py" "$JSON_PATH"
+  else
+    "$PYTHON_BIN" "$SCRIPT_DIR/transcribe-whisper.py" \
+      --language "$LANGUAGE" --model "$MODEL" --stdout-only "$AUDIO_PATH"
+  fi
+  exit 0
+fi
+
+# ------------------------------------------------------------
+#  QWEN 엔진 (mlx-qwen3-asr)
+# ------------------------------------------------------------
 
 # mlx-qwen3-asr 경로 탐색
 MLX_ASR_BIN="${MLX_ASR_BIN:-}"
@@ -188,8 +270,7 @@ if [ ! -x "$MLX_ASR_BIN" ]; then
   exit 1
 fi
 
-# 공통 인자
-MODEL="Qwen/Qwen3-ASR-1.7B"
+# 공통 인자 (MODEL은 엔진 결정 단계에서 Qwen/Qwen3-ASR-1.7B로 설정됨)
 DTYPE="bfloat16"
 COMMON_ARGS=(--model "$MODEL" --dtype "$DTYPE" --language "$LANGUAGE" --no-progress)
 

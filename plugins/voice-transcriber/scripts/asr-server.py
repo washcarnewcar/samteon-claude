@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
 """
-mlx-qwen3-asr 상주 HTTP 서버 (idle timeout 지원)
+ASR 상주 HTTP 서버 (멀티 엔진 + idle timeout 지원)
 
 모델을 메모리에 올려두고 요청마다 재사용하여 전사 속도를 높인다.
 일정 시간 요청이 없으면 모델을 자동 언로드하여 GPU 메모리를 해제한다.
 
+두 가지 엔진을 지원한다:
+    qwen    — Qwen3-ASR (정확·무거움)
+    whisper — whisper-large-v3-turbo + pyannote (빠름·균형)
+
+한 번에 한 엔진만 메모리에 상주하며, 다른 엔진 요청이 오면
+현재 모델을 언로드한 뒤 요청된 엔진을 로드한다.
+
 Usage:
-    python asr-server.py [--port 8787] [--model Qwen/Qwen3-ASR-1.7B] [--idle-timeout 300]
+    python asr-server.py [--port 8787] [--default-engine whisper] [--idle-timeout 300]
 
 API:
     POST /transcribe
-    Body: {"audio_path": "/path/to/file.m4a", "language": "Korean"}
+    Body: {"audio_path": "/path/to/file.m4a", "language": "Korean", "engine": "whisper"}
     Response: {"text": "전사된 텍스트", "duration_sec": 3.2}
 
     POST /transcribe
-    Body: {"audio_path": "/path/to/file.m4a", "language": "Korean",
+    Body: {"audio_path": "...", "language": "Korean", "engine": "qwen",
            "diarize": true, "num_speakers": 3}
     Response: {"text": "...", "speaker_segments": [...], "duration_sec": 12.5}
 
     GET /health
-    Response: {"status": "ok", "model": "...", "model_loaded": true, "idle_remaining_sec": 120}
+    Response: {"status": "ok", "engine": "whisper", "model": "...",
+               "model_loaded": true, "idle_remaining_sec": 120}
 """
 
 import atexit
@@ -36,17 +44,27 @@ from pathlib import Path
 
 import mlx.core as mx
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from whisper_engine import WhisperEngine, DEFAULT_WHISPER_MODEL  # noqa: E402
+
 PID_FILE = "/tmp/asr-server.pid"
 
+QWEN_MODEL = "Qwen/Qwen3-ASR-1.7B"
+ENGINE_MODELS = {
+    "qwen": QWEN_MODEL,
+    "whisper": DEFAULT_WHISPER_MODEL,
+}
 
-class ASRSession:
-    """모델 load/unload를 관리하는 세션"""
 
-    def __init__(self, model_name: str, dtype=mx.bfloat16):
+class QwenSession:
+    """mlx-qwen3-asr 모델 load/unload를 관리하는 세션"""
+
+    engine = "qwen"
+
+    def __init__(self, model_name: str = QWEN_MODEL, dtype=mx.bfloat16):
         self.model_name = model_name
         self.dtype = dtype
         self._session = None
-        self.load()
 
     @property
     def is_loaded(self) -> bool:
@@ -56,21 +74,21 @@ class ASRSession:
         if self._session is not None:
             return
         import mlx_qwen3_asr as asr
-        print(f"[ASR] 모델 로딩 중: {self.model_name} (dtype={self.dtype})", flush=True)
+        print(f"[ASR] qwen 모델 로딩 중: {self.model_name} (dtype={self.dtype})", flush=True)
         t0 = time.time()
         self._session = asr.Session(model=self.model_name, dtype=self.dtype)
         elapsed = time.time() - t0
-        print(f"[ASR] 모델 로딩 완료 ({elapsed:.1f}초)", flush=True)
+        print(f"[ASR] qwen 모델 로딩 완료 ({elapsed:.1f}초)", flush=True)
 
     def unload(self):
         if self._session is None:
             return
-        print("[ASR] 모델 언로드 중...", flush=True)
+        print("[ASR] qwen 모델 언로드 중...", flush=True)
         del self._session
         self._session = None
         gc.collect()
         mx.clear_cache()
-        print("[ASR] 모델 언로드 완료 (GPU 메모리 해제)", flush=True)
+        print("[ASR] qwen 모델 언로드 완료 (GPU 메모리 해제)", flush=True)
 
     def transcribe(self, audio_path: str, language: str = "Korean",
                    diarize: bool = False, num_speakers: int = None) -> dict:
@@ -118,8 +136,51 @@ class ASRSession:
         return response
 
 
+def _build_session(engine: str):
+    """엔진 이름으로 세션 객체를 생성한다."""
+    if engine == "whisper":
+        return WhisperEngine(ENGINE_MODELS["whisper"])
+    if engine == "qwen":
+        return QwenSession(ENGINE_MODELS["qwen"])
+    raise ValueError(f"알 수 없는 엔진: {engine}")
+
+
+class SessionManager:
+    """한 번에 하나의 엔진만 상주시키며, 엔진 전환 시 교체한다."""
+
+    def __init__(self):
+        self.engine = None
+        self.session = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self.session is not None and self.session.is_loaded
+
+    @property
+    def model_name(self) -> str:
+        return self.session.model_name if self.session else "not loaded"
+
+    def get(self, engine: str):
+        """요청 엔진의 세션을 반환한다. 현재 상주 엔진과 다르면 교체한다."""
+        if self.session is not None and self.engine == engine and self.session.is_loaded:
+            return self.session
+        if self.session is not None and self.engine != engine:
+            print(f"[ASR] 엔진 전환: {self.engine} → {engine}", flush=True)
+            self.session.unload()
+            self.session = None
+        if self.session is None:
+            self.session = _build_session(engine)
+            self.engine = engine
+        self.session.load()
+        return self.session
+
+    def unload(self):
+        if self.session is not None:
+            self.session.unload()
+
+
 # 전역 상태
-_asr_session: ASRSession = None
+_manager: SessionManager = None
 _last_activity: float = 0.0
 _idle_timeout: int = 300
 _lock = threading.Lock()
@@ -138,8 +199,9 @@ class ASRHandler(BaseHTTPRequestHandler):
             remaining = max(0, _idle_timeout - elapsed)
             self._send_json(200, {
                 "status": "ok",
-                "model": _asr_session.model_name if _asr_session else "not loaded",
-                "model_loaded": _asr_session.is_loaded if _asr_session else False,
+                "engine": _manager.engine if _manager else None,
+                "model": _manager.model_name if _manager else "not loaded",
+                "model_loaded": _manager.is_loaded if _manager else False,
                 "idle_remaining_sec": round(remaining),
             })
         else:
@@ -154,6 +216,7 @@ class ASRHandler(BaseHTTPRequestHandler):
 
             audio_path = data.get("audio_path", "")
             language = data.get("language", "Korean")
+            engine = data.get("engine") or _manager.engine or "whisper"
             diarize = data.get("diarize", False)
             num_speakers = data.get("num_speakers", None)
 
@@ -165,17 +228,20 @@ class ASRHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": f"File not found: {audio_path}"})
                 return
 
+            if engine not in ENGINE_MODELS:
+                self._send_json(400, {"error": f"Unknown engine: {engine}"})
+                return
+
+            # 엔진 로드/전환과 전사는 직렬화한다(모델 교체 경쟁 방지).
             with _lock:
                 _last_activity = time.time()
-
-            t0 = time.time()
-            result = _asr_session.transcribe(
-                audio_path, language=language,
-                diarize=diarize, num_speakers=num_speakers
-            )
-            elapsed = time.time() - t0
-
-            with _lock:
+                t0 = time.time()
+                session = _manager.get(engine)
+                result = session.transcribe(
+                    audio_path, language=language,
+                    diarize=diarize, num_speakers=num_speakers
+                )
+                elapsed = time.time() - t0
                 _last_activity = time.time()
 
             result["duration_sec"] = round(elapsed, 2)
@@ -198,16 +264,16 @@ class ASRHandler(BaseHTTPRequestHandler):
         sys.stderr.write(f"[ASR] {args[0]} {args[1]} {args[2]}\n")
 
 
-def _idle_watchdog(session: ASRSession, timeout: int):
-    """30초마다 체크, 유휴 시간 초과 시 모델 언로드"""
+def _idle_watchdog(manager: "SessionManager", timeout: int):
+    """30초마다 체크, 유휴 시간 초과 시 상주 모델 언로드"""
     global _last_activity
     while True:
         time.sleep(30)
         with _lock:
             idle = time.time() - _last_activity
-        if idle >= timeout and session.is_loaded:
+        if idle >= timeout and manager.is_loaded:
             print(f"[ASR] {timeout}초 유휴 — 모델 언로드", flush=True)
-            session.unload()
+            manager.unload()
 
 
 def _write_pid():
@@ -223,11 +289,13 @@ def _remove_pid():
 
 
 def main():
-    global _asr_session, _last_activity, _idle_timeout
+    global _manager, _last_activity, _idle_timeout
 
-    parser = argparse.ArgumentParser(description="mlx-qwen3-asr HTTP server")
+    parser = argparse.ArgumentParser(description="ASR multi-engine HTTP server")
     parser.add_argument("--port", type=int, default=8787)
-    parser.add_argument("--model", default="Qwen/Qwen3-ASR-1.7B")
+    parser.add_argument("--default-engine", default="whisper",
+                        choices=list(ENGINE_MODELS.keys()),
+                        help="시작 시 미리 로드할 엔진 (기본 whisper)")
     parser.add_argument("--idle-timeout", type=int, default=300,
                         help="모델 언로드까지 유휴 시간 (초, 기본 300)")
     args = parser.parse_args()
@@ -239,11 +307,13 @@ def main():
     atexit.register(_remove_pid)
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
-    _asr_session = ASRSession(args.model)
+    _manager = SessionManager()
+    # 기본 엔진을 미리 로드해 첫 요청 지연을 줄인다.
+    _manager.get(args.default_engine)
 
     watchdog = threading.Thread(
         target=_idle_watchdog,
-        args=(_asr_session, _idle_timeout),
+        args=(_manager, _idle_timeout),
         daemon=True,
     )
     watchdog.start()
