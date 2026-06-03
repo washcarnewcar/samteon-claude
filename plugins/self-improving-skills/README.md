@@ -16,7 +16,7 @@
 부가:
 
 - **TELEMETRY** (v0.2.0) — `Stop` 훅이 transcript에서 학습 스킬의 **사용 빈도를 추적**: `Skill` 호출→use, SKILL.md `Read`→view, `Write/Edit`→patch. `~/.claude/self-improve/skill_usage.json`에 use/view/patch 카운트 + 마지막 사용 시각 + `created_at` + `created_by`(agent/user)를 기록(atomic+flock, 세션별 offset으로 중복 방지). 이게 큐레이터가 "실제 안 쓰는 스킬"을 식별하는 데이터 기반입니다.
-- **VALIDATE** — `PostToolUse` 훅이 학습 SKILL.md의 frontmatter·크기를 검증하고, 처음 만들어진 학습 스킬에 `metadata.provenance` 표시를 자동 부착 + usage 레코드 시딩(provenance 티어링: distiller=agent, 사용자 직접=user).
+- **VALIDATE + 트랜잭션 편집** (v0.5.0) — `PreToolUse` 훅이 학습 SKILL.md를 편집 **직전에 백업**하고, `PostToolUse` 훅이 편집 후 frontmatter·크기를 검증. 편집이 구조를 깨뜨리면 **백업에서 자동 롤백**(Hermes `_patch_skill`의 backup→re-validate→rollback 이식)하고 모델에 다시 시도하도록 알림. 정상 편집은 무간섭. 처음 만들어진 학습 스킬엔 `metadata.provenance` 자동 부착 + usage 레코드 시딩(티어링: distiller=agent, 사용자 직접=user).
 - **CURATE** (v0.3.0) — **시간기반 미사용 스킬 자동 정리**. `SessionStart` 훅이 큐레이션 주기(기본 7일)가 됐는지 확인하고, 됐으면 `curator_transitions.py`를 **인라인 자동 실행**: 마지막 활동(use/view/patch) 기준 **30일 미사용→stale, 90일→archive**(`.archive/` 로 이동, 삭제 아님). 변경 전 tar.gz 스냅샷을 뜨고, 다시 쓰이면 stale→active로 재활성화. **pin된 스킬과 사용자 작성(`created_by:user`) 스킬은 절대 건드리지 않음.** 의미 기반 중복 통합은 `/curate-skills`(LLM, 병합 시 `absorbed_into` 기록)가 담당. 수동 제어 커맨드: `/curator-status`(상태·통계), `/prune-skills`(N일 미사용 일괄, dry-run), `/archive-skill`(단일), `/pin-skill`(보호), `/restore-skill`(복구).
 - **수동 트리거** — `/distill-skill` 로 언제든 증류를 직접 실행.
 
@@ -67,23 +67,26 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 - Hermes의 **무음·무료 데몬 스레드**(메인 대화 비용 0으로 백그라운드에서 스킬을 쓰는 fork)는 Claude Code에 대응물이 없습니다. 여기 격리 리뷰어는 서브에이전트라 **메인 턴에 빌링되고 사용자에게 보입니다.** 진짜 백그라운드를 원하면 launchd/cron `claude -p` 로 별도 구성해야 합니다.
 - 프리픽스 캐시 상속, 런타임 ContextVar 기반 provenance도 이식 불가 → frontmatter 스탬프로 근사.
 - 크로스세션 FTS5 검색(Hermes의 RECALL)은 이 플러그인 범위 밖입니다. 필요하면 `remember` 플러그인(메모리 자율 캡처)과 함께 쓰는 것을 권장.
+- **메모리 루프(MEMORY.md/USER.md)는 의도적으로 만들지 않습니다.** Hermes는 메모리(서술적 지식)와 스킬(절차적 지식)을 한 루프에 묶었지만, Claude Code는 **네이티브 `MEMORY.md` auto memory**(v2.1.59+ GA, 기본 ON)가 이미 에이전트 자율 메모리를 담당합니다. 이 플러그인은 **절차적 능력(스킬)** 축만 맡고, 사실 메모리는 네이티브에 위임 — 중복·이중 주입을 피합니다. (역할 분담: `CLAUDE.md`=정적 정책, 네이티브 `MEMORY.md`=자율 사실 메모리, `remember`=세션 요약, 이 플러그인=재사용 스킬.)
 
 ## 구성 파일
 
 ```
 self-improving-skills/
 ├── hooks/
-│   ├── hooks.json            # Stop + SessionStart + PostToolUse 등록
+│   ├── hooks.json            # Stop + SessionStart + PreToolUse + PostToolUse 등록
 │   ├── distill-nudge.sh      # Stop 래퍼 (fail-safe)
 │   ├── session-init.sh       # SessionStart 래퍼
-│   └── validate-skill.sh     # PostToolUse 래퍼
+│   ├── backup-skill.sh       # PreToolUse 래퍼 (편집 직전 백업)
+│   └── validate-skill.sh     # PostToolUse 래퍼 (검증 + 롤백)
 ├── scripts/
 │   ├── analyze_turn.py        # 복잡도 측정 + block/approve 결정 + usage 캡처
 │   ├── usage_store.py         # 스킬 사용 telemetry 저장소 (atomic+flock)
-│   ├── curator_transitions.py # 시간기반 stale→archive 상태머신 (+restore)
+│   ├── curator_transitions.py # 시간기반 stale→archive 상태머신 (+restore/prune)
 │   ├── curator_backup.py      # 변경 전 tar.gz 스냅샷
+│   ├── backup_skill.py        # PreToolUse: SKILL.md 편집 직전 백업
 │   ├── session_init.py        # 자기개선 안내 + 큐레이터 자동 실행
-│   └── validate_skill.py      # SKILL.md 검증 + provenance 스탬프 + usage 시딩
+│   └── validate_skill.py      # SKILL.md 검증 + 롤백 + provenance + usage 시딩
 ├── agents/
 │   └── skill-distiller.md     # 격리 리뷰어 (patch>create 우선순위)
 └── commands/

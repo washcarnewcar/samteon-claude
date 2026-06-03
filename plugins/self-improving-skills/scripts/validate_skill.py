@@ -28,6 +28,7 @@ never break the edit that already happened.
 import json
 import os
 import re
+import shutil
 import sys
 from typing import NoReturn
 
@@ -36,6 +37,8 @@ try:
     import usage_store
 except Exception:
     usage_store = None
+
+BACKUP_DIR = os.path.expanduser("~/.claude/self-improve/skill_backups")
 
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024
@@ -61,6 +64,26 @@ def feedback(text) -> NoReturn:
 def _is_learned_skill(file_path):
     norm = str(file_path or "").replace("\\", "/")
     return "/.claude/skills/" in norm and norm.endswith("SKILL.md")
+
+
+def _backup_path(file_path):
+    norm = str(file_path).replace("\\", "/")
+    name = os.path.basename(os.path.dirname(norm))
+    return os.path.join(BACKUP_DIR, name + ".bak")
+
+
+def _rollback_if_possible(file_path):
+    """Restore the pre-edit backup (made by backup_skill.py at PreToolUse).
+    Returns True if a rollback happened (existing skill whose edit broke it),
+    False if there was nothing to roll back to (a brand-new file)."""
+    bp = _backup_path(file_path)
+    if not os.path.isfile(bp):
+        return False
+    try:
+        shutil.copy2(bp, file_path)
+        return True
+    except Exception:
+        return False
 
 
 def _split_frontmatter(text):
@@ -182,11 +205,20 @@ def main():
         _seed_usage(file_path, text)
         silent()
 
-    msg = (
-        "[self-improving-skills] 방금 작성한 학습 스킬 {0} 에 문제가 있습니다:\n- ".format(file_path)
-        + "\n- ".join(problems)
-        + "\n수정한 뒤 다시 저장하세요."
-    )
+    # 구조가 깨짐 → 편집 직전 백업이 있으면 롤백(트랜잭션 안전), 없으면(신규) 경고만.
+    if _rollback_if_possible(file_path):
+        msg = (
+            "[self-improving-skills] {0} 편집이 SKILL.md 구조를 깨뜨려 편집 직전 버전으로 "
+            "자동 롤백했습니다. 발견된 문제:\n- ".format(file_path)
+            + "\n- ".join(problems)
+            + "\n원본이 복원됐으니, 위 문제를 피해 다시 편집하세요."
+        )
+    else:
+        msg = (
+            "[self-improving-skills] 방금 작성한 학습 스킬 {0} 에 문제가 있습니다:\n- ".format(file_path)
+            + "\n- ".join(problems)
+            + "\n수정한 뒤 다시 저장하세요."
+        )
     feedback(msg)
 
 
