@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codex-self-improvement": {
+      "command": "python3",
+      "args": [
+        "./scripts/skill_manager_mcp.py"
+      ],
+      "cwd": ".",
+      "note": "Local skill-manager MCP for Codex self-improvement. Provides safe skill list/view/create/patch/write/archive/curate tools with backups and telemetry."
+    }
+  }
+}
