@@ -111,21 +111,29 @@ def main():
         approve()
 
     # Anchor = the last index at which a distillation ALREADY happened, i.e.
-    #   (a) a Task tool_use delegating to skill-distiller, or
+    #   (a) a subagent delegation to skill-distiller, or
     #   (b) a Write/Edit/MultiEdit whose file_path is a ~/.claude/skills SKILL.md.
     # Everything after the anchor is "work not yet distilled".
+    #
+    # NOTE: the subagent-spawning tool is named differently across Claude Code
+    # surfaces ("Task" in the docs, "Agent" in some runtimes), and the
+    # subagent_type may carry a plugin namespace prefix
+    # ("self-improving-skills:skill-distiller"). So we key on the *presence of a
+    # subagent_type input* containing the distiller marker — environment- and
+    # name-agnostic — rather than hardcoding the tool name. (Getting this wrong
+    # is exactly the class of silent-mismatch bug dev-log hit; verified against a
+    # real transcript where the tool name was "Agent", not "Task".)
     anchor = -1
     for i, row in enumerate(rows):
         for tu in _tool_uses(row):
             name = tu.get("name")
             raw_inp = tu.get("input")
             inp = raw_inp if isinstance(raw_inp, dict) else {}
-            if name == "Task":
-                if SKILL_MARKER in json.dumps(inp, ensure_ascii=False):
-                    anchor = i
-            elif name in EDIT_TOOLS:
-                if _is_skill_path(inp.get("file_path")):
-                    anchor = i
+            subagent_type = str(inp.get("subagent_type", ""))
+            if SKILL_MARKER in subagent_type:
+                anchor = i
+            elif name in EDIT_TOOLS and _is_skill_path(inp.get("file_path")):
+                anchor = i
 
     # Count tool calls and real file edits since the anchor.
     total_calls = 0
@@ -143,9 +151,10 @@ def main():
     if total_calls >= threshold and file_edits >= min_edits:
         reason = (
             "이번 작업 구간에서 도구 호출이 {calls}회(파일 편집 {edits}회) 누적됐고 "
-            "아직 스킬로 증류되지 않았습니다. 종료하기 전에 Task 도구로 "
-            'subagent_type="skill-distiller" 를 호출해, 이 세션에서 얻은 재사용 가능한 '
-            "기법·패턴·해결책을 ~/.claude/skills 의 SKILL.md 로 캡처하세요.\n\n"
+            "아직 스킬로 증류되지 않았습니다. 종료하기 전에 /distill-skill 을 실행하거나 "
+            'skill-distiller 서브에이전트(subagent_type="skill-distiller")를 호출해, '
+            "이 세션에서 얻은 재사용 가능한 기법·패턴·해결책을 ~/.claude/skills 의 "
+            "SKILL.md 로 캡처하세요.\n\n"
             "원칙:\n"
             "- 이미 관련된 기존 스킬이 있으면 새로 만들지 말고 그 SKILL.md 를 patch 하세요.\n"
             "- 한 번 쓰고 버릴 일회성 작업(특정 PR·특정 버그·환경 의존적 우회)이라면 "
