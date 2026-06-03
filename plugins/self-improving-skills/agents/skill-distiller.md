@@ -42,8 +42,11 @@ figure out that was non-obvious and would save time if it recurred?**
    point to it from the SKILL.md body with one line. Keep SKILL.md bodies small.
 
 4. **Create a NEW class-level skill — last resort only.** Only when nothing above
-   fits. Create `~/.claude/skills/<name>/SKILL.md`. The name MUST be class-level
-   and reusable:
+   fits. **Before creating, check for a name collision** — `ls ~/.claude/skills/`
+   (and `~/.claude/skills/.archive/`). If a skill (or archived skill) of that name
+   already exists, do NOT overwrite it: either patch the existing one (step 1) or
+   pick a more specific class-level name. Then create `~/.claude/skills/<name>/SKILL.md`.
+   The name MUST be class-level and reusable:
    - GOOD: `pyannote-speaker-diarization`, `react-effect-cleanup`, `shadcn-v4-migration`
    - BAD: anything tied to one instance — a PR number, an error string, a codename,
      a `fix-X` / `debug-Y` session label, a specific filename. If the only honest

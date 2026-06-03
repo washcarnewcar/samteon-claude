@@ -24,7 +24,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/usage_store.py dump 2>/dev/null
 같은 class를 다루는 스킬이 여러 개로 쪼개져 있으면 하나의 umbrella 스킬로 통합하세요:
 
 - 가장 잘 명명된(class-level) 스킬을 기준으로 삼고, 나머지의 고유 내용을 그 SKILL.md 본문/`references/` 로 병합
-- 통합으로 비게 된 스킬 디렉토리는 **삭제하지 말고** `~/.claude/skills/.archive/<name>/` 로 이동 (복구 가능하게)
+- 통합으로 비게 된 스킬은 **삭제하지 말고** 아래 명령으로 아카이브하세요. 이때 병합 대상 umbrella 이름을 함께 넘기면 "폐기"가 아니라 "통합"으로 기록됩니다(`absorbed_into`):
+
+  ```bash
+  python3 ${CLAUDE_PLUGIN_ROOT}/scripts/curator_transitions.py archive "<병합된-스킬>" "<기준-umbrella-스킬>"
+  ```
+
 - 통합 후 기준 스킬의 `description` 이 합쳐진 범위를 정확히 반영하도록 갱신
 
 판단 기준: 두 스킬의 `description` 이 같은 상황에서 트리거될 만큼 겹치면 통합 후보입니다. 명확히 다른 도메인이면 그대로 둡니다.

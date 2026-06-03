@@ -113,6 +113,63 @@ def restore(name):
         return False
 
 
+def _idle_days(rec, now):
+    """Days since the most recent activity (use/view/patch), else since created_at."""
+    latest = None
+    for k in ("last_used_at", "last_viewed_at", "last_patched_at"):
+        d = _parse(rec.get(k))
+        if d and (latest is None or d > latest):
+            latest = d
+    anchor = latest or _parse(rec.get("created_at")) or now
+    return (now - anchor).days
+
+
+def archive_one(name, absorbed_into=None, dry_run=False):
+    """Manually archive a single skill (user-initiated). `absorbed_into` records
+    the umbrella it was merged into (vs None = plain prune). Returns a result dict."""
+    src = os.path.join(SKILLS_DIR, name)
+    if not os.path.isdir(src):
+        return {"name": name, "ok": False, "reason": "not found"}
+    if dry_run:
+        return {"name": name, "ok": True, "dry_run": True, "absorbed_into": absorbed_into}
+    if curator_backup is not None:
+        curator_backup.make_snapshot()
+    _archive_dir(name)
+    fields = {"state": "archived"}
+    if absorbed_into is not None:
+        fields["absorbed_into"] = absorbed_into
+    usage_store.set_fields(name, **fields)
+    return {"name": name, "ok": True, "absorbed_into": absorbed_into}
+
+
+def prune_idle(days, dry_run=True):
+    """Bulk-archive unpinned, agent-distilled skills idle >= `days`. dry_run=True
+    (default) only previews candidates — mutate nothing."""
+    now = _now()
+    records = usage_store.all_records()
+    learned = _learned_names()
+    candidates = []
+    for name in sorted(learned):
+        rec = records.get(name, {})
+        if rec.get("created_by", "agent") != "agent":
+            continue
+        if rec.get("pinned") or _frontmatter_pinned(name):
+            continue
+        if rec.get("state") == "archived":
+            continue
+        idle = _idle_days(rec, now)
+        if idle >= days:
+            candidates.append({"name": name, "idle_days": idle})
+    result = {"days": days, "dry_run": dry_run, "candidates": candidates}
+    if not dry_run and candidates:
+        if curator_backup is not None:
+            curator_backup.make_snapshot()
+        for c in candidates:
+            _archive_dir(c["name"])
+            usage_store.set_fields(c["name"], state="archived")
+    return result
+
+
 def run(dry_run=False):
     stale_days = _int_env("SIS_STALE_AFTER_DAYS", 30)
     archive_days = _int_env("SIS_ARCHIVE_AFTER_DAYS", 90)
@@ -143,13 +200,7 @@ def run(dry_run=False):
             continue
         if rec.get("state") == "archived":
             continue
-        latest = None
-        for k in ("last_used_at", "last_viewed_at", "last_patched_at"):
-            d = _parse(rec.get(k))
-            if d and (latest is None or d > latest):
-                latest = d
-        anchor = latest or _parse(rec.get("created_at")) or now
-        idle = (now - anchor).days
+        idle = _idle_days(rec, now)
         if idle >= archive_days:
             summary["archived"].append({"name": name, "idle_days": idle})
             if not dry_run:
@@ -210,8 +261,16 @@ if __name__ == "__main__":
     import json
     args = sys.argv[1:]
     if args and args[0] == "restore" and len(args) >= 2:
-        ok = restore(args[1])
-        print(json.dumps({"restored": args[1], "ok": ok}, ensure_ascii=False))
+        print(json.dumps({"restored": args[1], "ok": restore(args[1])}, ensure_ascii=False))
+    elif args and args[0] == "archive" and len(args) >= 2:
+        absorbed = args[2] if len(args) >= 3 else None
+        print(json.dumps(archive_one(args[1], absorbed_into=absorbed, dry_run=("--dry-run" in args)), ensure_ascii=False))
+    elif args and args[0] == "prune" and len(args) >= 2:
+        try:
+            days = int(args[1])
+        except ValueError:
+            days = _int_env("SIS_ARCHIVE_AFTER_DAYS", 90)
+        # prune is destructive: require --apply to actually mutate, else preview.
+        print(json.dumps(prune_idle(days, dry_run=("--apply" not in args)), ensure_ascii=False, indent=2))
     else:
-        dry = "--dry-run" in args
-        print(json.dumps(run(dry_run=dry), ensure_ascii=False, indent=2))
+        print(json.dumps(run(dry_run=("--dry-run" in args)), ensure_ascii=False, indent=2))
