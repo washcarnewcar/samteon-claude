@@ -36,8 +36,15 @@ import os
 import sys
 from typing import NoReturn
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import usage_store
+except Exception:
+    usage_store = None  # telemetry is best-effort; nudge logic works without it
+
 SKILL_MARKER = "skill-distiller"
 EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+SKILLS_DIR = os.path.expanduser("~/.claude/skills")
 
 
 def emit(obj) -> NoReturn:
@@ -78,6 +85,77 @@ def _is_skill_path(file_path):
     return "/.claude/skills/" in norm and norm.endswith("SKILL.md")
 
 
+def _learned_skill_names():
+    """Names of learned skills = immediate dirs under ~/.claude/skills with a SKILL.md."""
+    names = set()
+    try:
+        for entry in os.listdir(SKILLS_DIR):
+            if entry.startswith("."):
+                continue
+            if os.path.isfile(os.path.join(SKILLS_DIR, entry, "SKILL.md")):
+                names.add(entry)
+    except Exception:
+        pass
+    return names
+
+
+def _skill_name_from_path(file_path):
+    """The skill name for a ~/.claude/skills/<name>/SKILL.md path (dir basename)."""
+    if not _is_skill_path(file_path):
+        return None
+    norm = str(file_path).replace("\\", "/")
+    return os.path.basename(os.path.dirname(norm)) or None
+
+
+def _capture_telemetry(rows, session_id):
+    """Best-effort: bump use/view/patch counters for learned skills from new
+    transcript rows (since this session's last processed offset). Signals
+    (verified against real transcripts):
+      - Skill tool, input.skill (namespace-stripped) matches a learned skill -> use
+      - Read of a ~/.claude/skills/**/SKILL.md                                -> view
+      - Write/Edit/MultiEdit of the same                                      -> patch
+    """
+    if usage_store is None:
+        return
+    learned = _learned_skill_names()
+    try:
+        usage_store.forget_missing(learned)
+    except Exception:
+        pass
+
+    offset = 0
+    try:
+        offset = usage_store.get_offset(session_id)
+    except Exception:
+        offset = 0
+    if offset < 0 or offset > len(rows):
+        offset = 0
+
+    events = []
+    if learned:
+        for row in rows[offset:]:
+            for tu in _tool_uses(row):
+                name = tu.get("name")
+                raw_inp = tu.get("input")
+                inp = raw_inp if isinstance(raw_inp, dict) else {}
+                if name == "Skill":
+                    sk = str(inp.get("skill", "")).split(":")[-1]
+                    if sk in learned:
+                        events.append((sk, "use", "agent"))
+                elif name == "Read":
+                    sn = _skill_name_from_path(inp.get("file_path"))
+                    if sn in learned:
+                        events.append((sn, "view", "agent"))
+                elif name in EDIT_TOOLS:
+                    sn = _skill_name_from_path(inp.get("file_path"))
+                    if sn in learned:
+                        events.append((sn, "patch", "agent"))
+    try:
+        usage_store.apply_events(events, session_id, len(rows))
+    except Exception:
+        pass
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -109,6 +187,14 @@ def main():
                     continue
     except Exception:
         approve()
+
+    # Telemetry capture (best-effort, isolated): record skill use/view/patch from
+    # new transcript rows. Never let this affect the nudge decision below.
+    try:
+        session_id = str(payload.get("session_id") or os.path.basename(path))
+        _capture_telemetry(rows, session_id)
+    except Exception:
+        pass
 
     # Anchor = the last index at which a distillation ALREADY happened, i.e.
     #   (a) a subagent delegation to skill-distiller, or

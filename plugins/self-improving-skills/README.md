@@ -15,7 +15,8 @@
 
 부가:
 
-- **VALIDATE** — `PostToolUse` 훅이 학습 SKILL.md의 frontmatter·크기를 검증하고, 처음 만들어진 학습 스킬에 `metadata.provenance` 표시를 자동 부착.
+- **TELEMETRY** (v0.2.0) — `Stop` 훅이 transcript에서 학습 스킬의 **사용 빈도를 추적**: `Skill` 호출→use, SKILL.md `Read`→view, `Write/Edit`→patch. `~/.claude/self-improve/skill_usage.json`에 use/view/patch 카운트 + 마지막 사용 시각 + `created_at` + `created_by`(agent/user)를 기록(atomic+flock, 세션별 offset으로 중복 방지). 이게 큐레이터가 "실제 안 쓰는 스킬"을 식별하는 데이터 기반입니다.
+- **VALIDATE** — `PostToolUse` 훅이 학습 SKILL.md의 frontmatter·크기를 검증하고, 처음 만들어진 학습 스킬에 `metadata.provenance` 표시를 자동 부착 + usage 레코드 시딩(provenance 티어링: distiller=agent, 사용자 직접=user).
 - **CURATE** — `/curate-skills` 가 누적된 학습 스킬을 통합하고 노후 스킬을 아카이브(삭제 아님). `SessionStart` 훅이 라이브러리가 커지면 정리를 권유.
 - **수동 트리거** — `/distill-skill` 로 언제든 증류를 직접 실행.
 
@@ -75,9 +76,10 @@ self-improving-skills/
 │   ├── session-init.sh       # SessionStart 래퍼
 │   └── validate-skill.sh     # PostToolUse 래퍼
 ├── scripts/
-│   ├── analyze_turn.py       # 복잡도 측정 + block/approve 결정
+│   ├── analyze_turn.py       # 복잡도 측정 + block/approve 결정 + usage 캡처
+│   ├── usage_store.py        # 스킬 사용 telemetry 저장소 (atomic+flock)
 │   ├── session_init.py       # 자기개선 안내 + 큐레이터 알림 주입
-│   └── validate_skill.py     # SKILL.md 검증 + provenance 스탬프
+│   └── validate_skill.py     # SKILL.md 검증 + provenance 스탬프 + usage 시딩
 ├── agents/
 │   └── skill-distiller.md    # 격리 리뷰어 (patch>create 우선순위)
 └── commands/

@@ -31,6 +31,12 @@ import re
 import sys
 from typing import NoReturn
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import usage_store
+except Exception:
+    usage_store = None
+
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024
 MAX_CONTENT = 100000
@@ -133,6 +139,24 @@ def _stamp_provenance(path, text):
         pass
 
 
+def _seed_usage(file_path, text):
+    """Seed a usage record (created_at) for a newly-written learned skill, tagging
+    provenance so the curator only ever touches agent-distilled skills.
+    A skill carrying `origin: distilled` (written by skill-distiller) is
+    created_by=agent; a hand-authored SKILL.md is created_by=user."""
+    if usage_store is None:
+        return
+    norm = str(file_path).replace("\\", "/")
+    name = os.path.basename(os.path.dirname(norm))
+    if not name:
+        return
+    created_by = "agent" if re.search(r"origin\s*:\s*distilled", text) else "user"
+    try:
+        usage_store.seed_if_missing(name, created_by)
+    except Exception:
+        pass
+
+
 def main():
     raw = sys.stdin.read()
     try:
@@ -155,6 +179,7 @@ def main():
     problems = _validate(text)
     if not problems:
         _stamp_provenance(file_path, text)
+        _seed_usage(file_path, text)
         silent()
 
     msg = (
