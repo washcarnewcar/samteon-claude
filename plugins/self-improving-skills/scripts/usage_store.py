@@ -192,13 +192,14 @@ def set_fields(name, **fields):
 
 
 def forget_missing(existing_names):
-    """Drop records (and offsets stay) for skills whose dir no longer exists."""
+    """Drop records for skills whose dir no longer exists — EXCEPT archived ones
+    (those live under .archive/ and must keep their record so /restore works)."""
     existing = set(existing_names)
     with _Lock():
         data = load()
         changed = False
-        for name in [n for n, _ in _records(data)]:
-            if name not in existing:
+        for name, rec in list(_records(data)):
+            if name not in existing and rec.get("state") != "archived":
                 del data[name]
                 changed = True
         if changed:
@@ -210,6 +211,12 @@ def all_records():
 
 
 if __name__ == "__main__":
-    # Tiny CLI for inspection/testing: `usage_store.py dump`
-    if len(sys.argv) > 1 and sys.argv[1] == "dump":
+    # Tiny CLI: dump | pin <name> | unpin <name>
+    args = sys.argv[1:]
+    if args and args[0] == "dump":
         print(json.dumps(load(), ensure_ascii=False, indent=2))
+    elif len(args) >= 2 and args[0] in ("pin", "unpin"):
+        set_fields(args[1], pinned=(args[0] == "pin"))
+        print("{0}: pinned={1}".format(args[1], args[0] == "pin"))
+    else:
+        print("usage: usage_store.py [dump | pin <name> | unpin <name>]")

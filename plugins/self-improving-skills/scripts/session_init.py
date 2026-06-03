@@ -67,17 +67,65 @@ def _count_learned_skills():
     return learned
 
 
-def _curation_due(learned_count):
-    min_skills = _int_env("SIS_CURATE_MIN_SKILLS", 8)
-    if learned_count < min_skills:
-        return False
-    interval = _int_env("SIS_CURATE_INTERVAL_DAYS", 7) * 86400
+def _read_curator_state():
     try:
         with open(CURATOR_STATE, encoding="utf-8") as fh:
-            last = float(json.load(fh).get("last_run", 0))
+            d = json.load(fh)
+            return d if isinstance(d, dict) else {}
     except Exception:
+        return {}
+
+
+def _write_curator_state(state):
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        tmp = CURATOR_STATE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, CURATOR_STATE)
+    except Exception:
+        pass
+
+
+def _curation_status(learned_count):
+    """'seed' (first ever — defer), 'due' (run now), or 'idle'."""
+    state = _read_curator_state()
+    if "last_run" not in state:
+        return "seed"
+    if learned_count < _int_env("SIS_CURATE_MIN_SKILLS", 8):
+        return "idle"
+    interval = _int_env("SIS_CURATE_INTERVAL_DAYS", 7) * 86400
+    try:
+        last = float(state.get("last_run", 0))
+    except (TypeError, ValueError):
         last = 0.0
-    return (time.time() - last) >= interval
+    return "due" if (time.time() - last) >= interval else "idle"
+
+
+def _run_curator(state, lines):
+    """Run the deterministic time-based transition pass inline and report it."""
+    summary = None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import curator_transitions
+        summary = curator_transitions.run(dry_run=False)
+    except Exception:
+        summary = None
+    state["last_run"] = time.time()
+    state["run_count"] = int(state.get("run_count", 0)) + 1
+    if summary:
+        na, ns, nr = len(summary["archived"]), len(summary["stale"]), len(summary["reactivated"])
+        state["last_summary"] = {"archived": na, "stale": ns, "reactivated": nr}
+        if na or ns or nr:
+            lines.append(
+                "[큐레이터] 미사용 스킬 자동 정리 실행: stale {0}개, 아카이브 {1}개, 재활성화 {2}개. "
+                "아카이브된 스킬은 ~/.claude/skills/.archive/ 로 이동(삭제 아님, /restore-skill 로 복구). "
+                "세부 리포트는 ~/.claude/self-improve/logs/curator/. "
+                "중복 스킬의 의미 기반 통합이 필요하면 /curate-skills 를 실행하세요.".format(ns, na, nr)
+            )
+        else:
+            lines.append("[큐레이터] 정기 점검 완료 — 정리할 미사용 스킬이 없습니다.")
+    _write_curator_state(state)
 
 
 def main():
@@ -102,11 +150,12 @@ def main():
         lines.append("현재 학습된 스킬 {0}개가 ~/.claude/skills 에 누적되어 있습니다.".format(learned))
 
     try:
-        if _curation_due(learned):
-            lines.append(
-                "학습된 스킬이 충분히 쌓였고 한동안 정리되지 않았습니다. "
-                "여유가 있을 때 /curate-skills 로 중복 스킬을 통합하고 오래된 스킬을 아카이브하세요."
-            )
+        status = _curation_status(learned)
+        if status == "seed":
+            # First ever tick: seed the clock and DEFER (never curate on install).
+            _write_curator_state({"last_run": time.time(), "run_count": 0})
+        elif status == "due":
+            _run_curator(_read_curator_state(), lines)
     except Exception:
         pass
 

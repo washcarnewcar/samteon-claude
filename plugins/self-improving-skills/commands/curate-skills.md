@@ -6,14 +6,18 @@ description: 학습된 스킬 라이브러리(~/.claude/skills)를 정리한다 
 
 ## 절차
 
-### 1. 학습 스킬 수집
+### 1. 학습 스킬 + 사용 통계 수집
 
 ```bash
 ls -d ~/.claude/skills/*/ 2>/dev/null
 grep -rl "provenance: self-improving-skills" ~/.claude/skills --include=SKILL.md 2>/dev/null
+echo "=== usage telemetry ==="
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/usage_store.py dump 2>/dev/null
 ```
 
-각 학습 스킬(`provenance: self-improving-skills` 표시가 있는 것)의 `name` 과 `description` 을 읽어 목록을 만드세요. **사용자가 직접 만든 스킬이나 다른 플러그인이 제공한 스킬은 건드리지 마세요** — provenance 표시가 있는 것만 큐레이션 대상입니다.
+각 학습 스킬의 `name`·`description` 과 함께 **usage 통계**(use/view/patch 횟수, 마지막 사용, state, created_by)를 표로 만드세요. **사용자가 직접 만든 스킬(`created_by: user`)이나 다른 플러그인 스킬은 절대 건드리지 마세요** — `created_by: agent` 인 것만 큐레이션 대상입니다.
+
+> 중요: **`use_count == 0` 이라는 이유만으로 스킬을 버리지 마세요.** 최근에 만들어졌지만 아직 해당 상황이 안 온 것일 수 있습니다. 미사용에 따른 정리는 시간 기반 상태머신(`curator_transitions.py`)이 stale→archive로 이미 처리합니다. 이 LLM 패스의 역할은 **빈도가 아니라 의미 기반 통합** — 같은 주제를 다루는 중복 스킬을 하나의 umbrella로 합치는 것입니다. 단, 사용 통계는 통합 시 "어느 쪽을 기준 스킬로 삼을지"(더 많이 쓰이는 쪽)의 참고 자료로 쓰세요.
 
 ### 2. 중복·과편향 통합
 

@@ -17,7 +17,7 @@
 
 - **TELEMETRY** (v0.2.0) — `Stop` 훅이 transcript에서 학습 스킬의 **사용 빈도를 추적**: `Skill` 호출→use, SKILL.md `Read`→view, `Write/Edit`→patch. `~/.claude/self-improve/skill_usage.json`에 use/view/patch 카운트 + 마지막 사용 시각 + `created_at` + `created_by`(agent/user)를 기록(atomic+flock, 세션별 offset으로 중복 방지). 이게 큐레이터가 "실제 안 쓰는 스킬"을 식별하는 데이터 기반입니다.
 - **VALIDATE** — `PostToolUse` 훅이 학습 SKILL.md의 frontmatter·크기를 검증하고, 처음 만들어진 학습 스킬에 `metadata.provenance` 표시를 자동 부착 + usage 레코드 시딩(provenance 티어링: distiller=agent, 사용자 직접=user).
-- **CURATE** — `/curate-skills` 가 누적된 학습 스킬을 통합하고 노후 스킬을 아카이브(삭제 아님). `SessionStart` 훅이 라이브러리가 커지면 정리를 권유.
+- **CURATE** (v0.3.0) — **시간기반 미사용 스킬 자동 정리**. `SessionStart` 훅이 큐레이션 주기(기본 7일)가 됐는지 확인하고, 됐으면 `curator_transitions.py`를 **인라인 자동 실행**: 마지막 활동(use/view/patch) 기준 **30일 미사용→stale, 90일→archive**(`.archive/` 로 이동, 삭제 아님). 변경 전 tar.gz 스냅샷을 뜨고, 다시 쓰이면 stale→active로 재활성화. **pin된 스킬과 사용자 작성(`created_by:user`) 스킬은 절대 건드리지 않음.** 의미 기반 중복 통합은 `/curate-skills`(LLM)가 담당. 커맨드: `/curator-status`(상태 조회), `/pin-skill`(보호), `/restore-skill`(복구).
 - **수동 트리거** — `/distill-skill` 로 언제든 증류를 직접 실행.
 
 ## 흐름
@@ -43,8 +43,10 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 |---|---|---|
 | `SIS_DISTILL_THRESHOLD` | `12` | 증류 nudge를 띄울, 마지막 증류 이후 누적 도구 호출 수 |
 | `SIS_MIN_FILE_EDITS` | `2` | nudge 조건: 마지막 증류 이후 실제 파일 편집(Edit/Write/MultiEdit) 최소 횟수. 순수 탐색·질의 턴은 트리거하지 않게 함 |
-| `SIS_CURATE_MIN_SKILLS` | `8` | 큐레이션을 권유하기 시작하는 학습 스킬 수 |
-| `SIS_CURATE_INTERVAL_DAYS` | `7` | 큐레이션 재권유 간격(일) |
+| `SIS_CURATE_MIN_SKILLS` | `8` | 자동 큐레이션을 시작하는 학습 스킬 수 |
+| `SIS_CURATE_INTERVAL_DAYS` | `7` | 큐레이터 자동 실행 간격(일) |
+| `SIS_STALE_AFTER_DAYS` | `30` | 마지막 활동 후 이 일수 미사용 시 stale 마킹 |
+| `SIS_ARCHIVE_AFTER_DAYS` | `90` | 마지막 활동 후 이 일수 미사용 시 `.archive/` 로 이동 |
 
 `~/.claude/settings.json` 의 `env` 블록이나 셸 환경에서 조정합니다.
 
@@ -76,13 +78,18 @@ self-improving-skills/
 │   ├── session-init.sh       # SessionStart 래퍼
 │   └── validate-skill.sh     # PostToolUse 래퍼
 ├── scripts/
-│   ├── analyze_turn.py       # 복잡도 측정 + block/approve 결정 + usage 캡처
-│   ├── usage_store.py        # 스킬 사용 telemetry 저장소 (atomic+flock)
-│   ├── session_init.py       # 자기개선 안내 + 큐레이터 알림 주입
-│   └── validate_skill.py     # SKILL.md 검증 + provenance 스탬프 + usage 시딩
+│   ├── analyze_turn.py        # 복잡도 측정 + block/approve 결정 + usage 캡처
+│   ├── usage_store.py         # 스킬 사용 telemetry 저장소 (atomic+flock)
+│   ├── curator_transitions.py # 시간기반 stale→archive 상태머신 (+restore)
+│   ├── curator_backup.py      # 변경 전 tar.gz 스냅샷
+│   ├── session_init.py        # 자기개선 안내 + 큐레이터 자동 실행
+│   └── validate_skill.py      # SKILL.md 검증 + provenance 스탬프 + usage 시딩
 ├── agents/
-│   └── skill-distiller.md    # 격리 리뷰어 (patch>create 우선순위)
+│   └── skill-distiller.md     # 격리 리뷰어 (patch>create 우선순위)
 └── commands/
-    ├── distill-skill.md      # 수동 증류 트리거
-    └── curate-skills.md      # 통합·아카이브
+    ├── distill-skill.md       # 수동 증류 트리거
+    ├── curate-skills.md       # 의미 기반 중복 통합 (LLM)
+    ├── curator-status.md      # 루프 상태·사용 통계 조회
+    ├── pin-skill.md           # 스킬 pin (자동 정리 보호)
+    └── restore-skill.md       # 아카이브 복구
 ```
