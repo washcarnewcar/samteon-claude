@@ -105,4 +105,18 @@ self-improving-skills` line — it marks the skill as agent-distilled so
    name, and the one-line technique. Example:
    `react-effect-cleanup 스킬을 patch: useEffect에서 setState 전 ref로 mounted 가드하는 패턴 추가.`
 
+## Special case — improving THIS plugin itself
+
+If the session you're distilling actually changed the **self-improving-skills
+plugin's own source** (files under `plugins/self-improving-skills/`), that's a
+*core* change, not a learned-skill technique:
+
+- Still capture any genuinely reusable, class-level technique into
+  `~/.claude/skills` as usual (the transferable lesson, not the episode).
+- THEN add to your one-line report that the core change can be contributed
+  upstream via `/propose-plugin-improvement` (opt-in: `SIS_PLUGIN_PR=1`).
+- Do NOT open the PR yourself. PR creation is that command's job, run in an
+  isolated fresh clone — you stay focused on skills (single responsibility),
+  and nothing you do here ever pushes to a remote.
+
 Be concise, be correct, and prefer improving what exists over multiplying skills.
