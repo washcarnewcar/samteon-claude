@@ -6,9 +6,9 @@ description: 방금 작업에서 재사용 가능한 기법을 학습 스킬(~/.
 
 이것은 자기개선 루프의 **수동 트리거**입니다 (Stop 훅 자동 nudge와 동일한 일을 사용자가 원할 때 실행).
 
-**skill-distiller 서브에이전트에 위임하세요:**
+**self-improving-skills:skill-distiller 서브에이전트에 위임하세요:**
 
-Task 도구로 `subagent_type="skill-distiller"` 를 호출하고, 방금 세션에서 무엇을 했고 무엇이 비자명했는지(어떤 문제를 어떻게 풀었는지, 어떤 API/라이브러리 동작을 발견했는지)를 간단히 전달하세요. 서브에이전트가:
+Task 도구로 `subagent_type="self-improving-skills:skill-distiller"` 를 호출하고 (플러그인 네임스페이스 접두사를 포함한 정확한 이름입니다 — `skill-distiller` 만으로는 호출이 실패합니다), 방금 세션에서 무엇을 했고 무엇이 비자명했는지(어떤 문제를 어떻게 풀었는지, 어떤 API/라이브러리 동작을 발견했는지)를 간단히 전달하세요. 서브에이전트가:
 
 1. `~/.claude/skills/**/SKILL.md` 를 훑어 관련된 기존 스킬이 있는지 확인하고,
 2. 있으면 그 스킬을 **patch**, 없으면(그리고 class-level로 재사용 가능할 때만) **새 스킬 생성**,

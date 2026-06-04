@@ -238,7 +238,9 @@ def main():
         reason = (
             "이번 작업 구간에서 도구 호출이 {calls}회(파일 편집 {edits}회) 누적됐고 "
             "아직 스킬로 증류되지 않았습니다. 종료하기 전에 /distill-skill 을 실행하거나 "
-            'skill-distiller 서브에이전트(subagent_type="skill-distiller")를 호출해, '
+            'self-improving-skills:skill-distiller 서브에이전트'
+            '(subagent_type="self-improving-skills:skill-distiller" — 플러그인 네임스페이스 '
+            '접두사를 빼면 호출이 실패함)를 호출해, '
             "이 세션에서 얻은 재사용 가능한 기법·패턴·해결책을 ~/.claude/skills 의 "
             "SKILL.md 로 캡처하세요.\n\n"
             "원칙:\n"

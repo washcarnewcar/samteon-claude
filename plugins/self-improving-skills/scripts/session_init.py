@@ -142,7 +142,9 @@ def main():
     lines = [
         "[self-improving-skills] 자기개선 루프가 활성화되어 있습니다.",
         "복잡한 작업·까다로운 디버깅·새로운 기법 발견을 끝낸 뒤, 그것이 재사용 가능하다면 "
-        "Task 도구로 skill-distiller 서브에이전트를 호출하거나 /distill-skill 로 ~/.claude/skills 에 "
+        "Task 도구로 self-improving-skills:skill-distiller 서브에이전트(정확한 subagent_type 은 "
+        "\"self-improving-skills:skill-distiller\" — 플러그인 네임스페이스 접두사를 빼면 호출이 실패함)를 "
+        "호출하거나 /distill-skill 로 ~/.claude/skills 에 "
         "SKILL.md 를 만들어(또는 기존 스킬을 patch 하여) 다음 세션의 자신에게 남기세요. "
         "복잡한 구간을 그냥 종료하려 하면 Stop 훅이 한 번 상기시켜 줍니다.",
     ]
