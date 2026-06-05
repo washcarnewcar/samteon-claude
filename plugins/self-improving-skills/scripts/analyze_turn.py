@@ -291,7 +291,8 @@ def main():
                 "아직 스킬로 증류되지 않았습니다. 종료하기 전에 /distill-skill 을 실행하거나 "
                 'self-improving-skills:skill-distiller 서브에이전트'
                 '(subagent_type="self-improving-skills:skill-distiller" — 플러그인 네임스페이스 '
-                '접두사를 빼면 호출이 실패함)를 호출해, '
+                '접두사를 빼면 호출이 실패함)를 Task 도구의 run_in_background=true 로 호출해 '
+                '(반드시 백그라운드로 — 그래야 증류가 도는 동안 사용자 입력이 막히지 않습니다), '
                 "이 세션에서 얻은 재사용 가능한 기법·패턴·해결책을 ~/.claude/skills 의 "
                 "SKILL.md 로 캡처하세요.\n\n"
                 "원칙:\n"
