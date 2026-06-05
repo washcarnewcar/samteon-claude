@@ -88,7 +88,7 @@ SK Open API Free 요금제에서 다음 엔드포인트는 **일일 1회**로 �
 Claude Code 내에서:
 
 ```
-/plugin marketplace add washcarnewcar/samton-claude
+/plugin marketplace add samton-inc/samton-claude
 /plugin install tmap@samton-claude
 ```
 
@@ -105,7 +105,7 @@ Claude Code 내에서:
 Claude Code가 아닌 다른 에이전트 환경에서 스킬만 쓰고 싶다면:
 
 ```bash
-npx skills add https://github.com/washcarnewcar/samton-claude/tree/main/plugins/tmap/skills/tmap
+npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/tmap/skills/tmap
 ```
 
 이 방법은 `skills/tmap/` 디렉토리만 설치합니다 (Claude Code 플러그인 매니페스트·hooks는 제외).

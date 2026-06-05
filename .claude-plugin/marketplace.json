@@ -12,7 +12,7 @@
       "name": "feature",
       "source": "./plugins/feature",
       "description": "기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함)",
-      "version": "2.8.1",
+      "version": "2.8.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -24,7 +24,7 @@
       "name": "commit",
       "source": "./plugins/commit",
       "description": "Git 커밋 자동화 및 푸시, PR 생성",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -36,7 +36,7 @@
       "name": "markdown-to-pdf",
       "source": "./plugins/markdown-to-pdf",
       "description": "마크다운 문서를 네이비 테마 PDF로 변환 (한국어, 이모지, 테이블, 코드 블록 지원)",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -48,7 +48,7 @@
       "name": "docx-report-generation",
       "source": "./plugins/docx-report-generation",
       "description": "python-docx 한국어 Word 보고서 생성 (차트, 다이어그램, PDF 변환, 시각 비교)",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -60,7 +60,7 @@
       "name": "dev-log",
       "source": "./plugins/dev-log",
       "description": "빌드 에러/경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록",
-      "version": "1.3.4",
+      "version": "1.3.5",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -72,7 +72,7 @@
       "name": "gemini-image-reader",
       "source": "./plugins/gemini-image-reader",
       "description": "이미지 파일을 Gemini CLI로 분석하여 텍스트 설명을 반환 (스크린샷, 문서, 다이어그램, 사진 등)",
-      "version": "1.6.2",
+      "version": "1.6.3",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -84,7 +84,7 @@
       "name": "voice-transcriber",
       "source": "./plugins/voice-transcriber",
       "description": "음성 메시지 전사 + 화자 분리 지원 (Discord/Telegram/직접 파일). whisper-large-v3-turbo / Qwen3-ASR 엔진 선택, MLX 로컬 동작",
-      "version": "2.4.1",
+      "version": "2.4.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -96,7 +96,7 @@
       "name": "tmap",
       "source": "./plugins/tmap",
       "description": "SK TMap API 37개 엔드포인트(경로/POI/지오코딩/대중교통/교통정보/경유지/지오펜싱/정적지도/매트릭스/도로매칭/유가정보)를 얇은 Python CLI 래퍼로 노출 + 온보딩 자동 감지",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -120,7 +120,7 @@
       "name": "self-improving-skills",
       "source": "./plugins/self-improving-skills",
       "description": "복잡한 작업 후 재사용 가능한 기법을 SKILL.md로 자동 증류하고 기존 스킬을 스스로 개선하는 자기개선 루프 (Nous Research Hermes Agent 방식의 Claude Code 이식)",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"

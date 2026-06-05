@@ -306,7 +306,7 @@ def main():
                 "이번 구간이 self-improving-skills 코어 소스를 직접 수정했습니다. "
                 "이건 ~/.claude/skills 증류와는 별개입니다 — 플러그인 코어 개선은 사람이 "
                 "유지보수하는 영역이므로, 다음 중 하나로 처리하세요:\n"
-                "- 이 개선을 upstream(washcarnewcar/samton-claude)에 기여하려면 "
+                "- 이 개선을 upstream(samton-inc/samton-claude)에 기여하려면 "
                 "/propose-plugin-improvement 를 실행하세요. fresh clone 에서 변경을 재현해 "
                 "PR 로 제안합니다(write 권한이 없으면 fork 경유). "
                 "opt-in: 환경변수 SIS_PLUGIN_PR=1 이 설정돼 있어야 실제 PR 을 만듭니다.\n"

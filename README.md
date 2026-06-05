@@ -22,7 +22,7 @@ Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함�
 Claude Code 내에서 마켓플레이스를 추가하면 모든 플러그인을 한 번에 관리할 수 있습니다:
 
 ```
-/plugin marketplace add washcarnewcar/samton-claude
+/plugin marketplace add samton-inc/samton-claude
 ```
 
 그 후 원하는 플러그인을 개별 활성화:
@@ -51,13 +51,13 @@ Claude Code가 아닌 다른 에이전트 환경(Codex, Cursor, 독립 AI 워크
 
 ```bash
 # 예: tmap 스킬만 설치
-npx skills add https://github.com/washcarnewcar/samton-claude/tree/main/plugins/tmap/skills/tmap
+npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/tmap/skills/tmap
 
 # 예: voice-transcriber 스킬만 설치
-npx skills add https://github.com/washcarnewcar/samton-claude/tree/main/plugins/voice-transcriber/skills/voice-transcriber
+npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/voice-transcriber/skills/voice-transcriber
 
 # 예: feature 스킬만 설치
-npx skills add https://github.com/washcarnewcar/samton-claude/tree/main/plugins/feature/skills/feature
+npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/feature/skills/feature
 ```
 
 각 플러그인의 스킬 경로는 `plugins/<plugin-name>/skills/<skill-name>/` 패턴을 따릅니다. 플러그인 내부 디렉토리 구조는 [여기](./plugins)에서 확인할 수 있습니다.
@@ -80,7 +80,7 @@ npx skills add https://github.com/washcarnewcar/samton-claude/tree/main/plugins/
 
 Samton 팀 공용 저장소입니다. 팀원은 자신의 플러그인을 `plugins/<name>/` 디렉토리로 추가하고 `.claude-plugin/marketplace.json`에 엔트리를 등록하면 다른 팀원들이 바로 설치해서 쓸 수 있습니다. 외부 사용자의 이슈·PR도 환영합니다.
 
-- 이슈: https://github.com/washcarnewcar/samton-claude/issues
+- 이슈: https://github.com/samton-inc/samton-claude/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>
 
 ## 라이선스

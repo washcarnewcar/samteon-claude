@@ -1,13 +1,13 @@
 {
   "name": "voice-transcriber",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "음성 메시지 전사 + 화자 분리 지원 (Discord/Telegram/직접 파일). whisper-large-v3-turbo / Qwen3-ASR 엔진 선택, MLX 로컬 동작. server/cli 모드, 5분 유휴 시 모델 자동 언로드.",
   "author": {
     "name": "이정윤",
     "email": "solstice@samton.co.kr"
   },
-  "homepage": "https://github.com/washcarnewcar/samton-claude",
-  "repository": "https://github.com/washcarnewcar/samton-claude",
+  "homepage": "https://github.com/samton-inc/samton-claude",
+  "repository": "https://github.com/samton-inc/samton-claude",
   "license": "MIT",
   "keywords": [
     "voice",
