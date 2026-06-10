@@ -7,7 +7,7 @@ Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함�
 | 이름 | 카테고리 | 설명 |
 |---|---|---|
 | **feature** | development | 기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함) |
-| **commit** | git | Git 커밋 자동화 및 푸시, PR 생성 |
+| **git** | git | Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지 |
 | **dev-log** | document | 빌드 에러·경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록 |
 | **docx-report-generation** | document | python-docx 기반 한국어 Word 보고서 생성 (차트·다이어그램·PDF 변환) |
 | **gemini-image-reader** | utility | 이미지를 Gemini CLI로 분석하여 텍스트 설명 반환 (스크린샷·문서·다이어그램) |
