@@ -21,13 +21,13 @@
       "category": "development"
     },
     {
-      "name": "commit",
-      "source": "./plugins/commit",
-      "description": "Git 커밋 자동화 및 푸시, PR 생성",
-      "version": "1.0.3",
+      "name": "git",
+      "source": "./plugins/git",
+      "description": "Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지",
+      "version": "2.0.0",
       "author": {
-        "name": "이정윤",
-        "email": "solstice@samton.co.kr"
+        "name": "김수민",
+        "email": "su2490min@gmail.com"
       },
       "license": "MIT",
       "category": "git"
