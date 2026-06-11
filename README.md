@@ -7,6 +7,8 @@ Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함�
 | 이름 | 카테고리 | 설명 |
 |---|---|---|
 | **feature** | development | 기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함) |
+| **self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
+| **codex-self-improvement** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
 | **git** | git | Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지 |
 | **dev-log** | document | 빌드 에러·경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록 |
 | **docx-report-generation** | document | python-docx 기반 한국어 Word 보고서 생성 (차트·다이어그램·PDF 변환) |
@@ -70,6 +72,8 @@ npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/fea
 
 | 플러그인 | 필요 의존성 |
 |---|---|
+| `self-improving-skills` | Python 3; 팀 스킬 공유(/share-skill, /sync-team-skills) 사용 시 GitHub CLI(`gh`) 인증 |
+| `codex-self-improvement` | OpenAI Codex CLI |
 | `tmap` | SK Open API AppKey (https://openapi.sk.com/) |
 | `gemini-image-reader` | Google Gemini API 키 또는 CLI |
 | `voice-transcriber` | ffmpeg, Qwen3-ASR MLX 모델 (MacOS 환경) |
