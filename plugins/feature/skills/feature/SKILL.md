@@ -71,8 +71,9 @@ Include this at the end of every plan file:
 
 ### 코드 리뷰
 - `Skill(skill="feature:code-review")` 호출
-- codex CLI 가용 시: codex exec review 2개(Bugs & Correctness / Simplicity & DRY) + convention 에이전트 병렬 실행
-- codex CLI 미가용 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰
+- codex CLI 설치+인증 시: codex exec review 3개(Bugs & Correctness / Simplicity & DRY / Project Conventions) 병렬 실행. 호출 실패 시 1회 재시도 후 사용자에게 보고(Claude 에이전트로 대체하지 않음)
+- codex CLI 미설치 시: code-reviewer 서브 에이전트 3개 병렬로 코드 리뷰 (LEGACY)
+- codex CLI 설치됐으나 인증 미완료 시: 사용자에게 알리고 인증/LEGACY 선택
 - 리뷰 결과 사용자에게 보고
 - 수정 발생 시 `Skill(skill="feature:code-review")` 재호출하여 재검토
 ```

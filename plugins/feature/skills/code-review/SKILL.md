@@ -33,18 +33,27 @@ This depends only on the `codex` CLI. `~/.codex/auth.json` is the codex CLI's st
 
 **Step 2 — Determine mode and announce:**
 
-| codex CLI | auth | Mode |
+| codex CLI | auth | 동작 |
 |---|---|---|
 | installed | ok | **CODEX_MODE** |
-| installed | missing | **LEGACY_MODE** (인증 미완료) |
-| not installed | — | **LEGACY_MODE** (미설치) |
+| installed | missing | **사용자 확인 대기** (인증 미완료 — 자동 LEGACY 안 함) |
+| not installed | — | **LEGACY_MODE** |
+
+핵심 원칙: **Claude 에이전트(LEGACY)는 codex CLI가 미설치일 때만 쓴다.** codex가 설치돼 있으면 인증 미완료든 런타임 실패든 Claude로 조용히 내려가지 않는다.
 
 Announce:
-- CODEX_MODE: `"codex CLI 감지 + 인증 확인 → CODEX_MODE로 실행 (codex exec review 2개 + convention 에이전트)"`
+- CODEX_MODE: `"codex CLI 감지 + 인증 확인 → CODEX_MODE로 실행 (codex exec review 3개: Bugs / Simplicity / Conventions)"`
 - LEGACY_MODE (미설치): `"codex CLI 미설치 → LEGACY_MODE로 실행 (code-reviewer 에이전트 3개 병렬)"`
-- LEGACY_MODE (인증 미완료): `"codex CLI 설치됨, 인증 미완료 → LEGACY_MODE로 실행"`
+- **인증 미완료 (설치됨 + auth missing)**: 자동으로 LEGACY로 가지 않는다. 사용자에게 알리고 선택을 기다린다 (이 스킬은 AskUserQuestion 금지 → 일반 텍스트로):
+  ```
+  codex CLI는 설치됐으나 인증이 안 돼 있습니다 (~/.codex/auth.json 없음).
+  어떻게 진행할까요?
+  1) codex 인증 후 CODEX_MODE로 진행 (예: codex login)
+  2) LEGACY_MODE(Claude 에이전트 3개)로 진행
+  ```
+  사용자가 인증을 마쳤다고 하면 Phase 0 Step 1의 auth 체크를 재실행해 `auth: ok`를 확인한 뒤 CODEX_MODE로 진입한다. 사용자가 2)를 고르면 LEGACY_MODE로 진행한다.
 
-CODEX_MODE에서 Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X).
+CODEX_MODE에서 Reviewer A·B·C는 모두 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X).
 
 ### Phase 1: Discover Project Conventions
 
@@ -98,7 +107,7 @@ Not every flagged file needs changing — this is a reminder to check, not an er
 
 #### CODEX_MODE
 
-Reviewer A·B는 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X). Reviewer C는 `feature:code-reviewer` 에이전트.
+Reviewer A·B·C 모두 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X). Reviewer C(Conventions)는 codex가 working-tree를 모르므로 Phase 1에서 추출한 프로젝트 규칙을 focus text(PROMPT)에 주입한다.
 
 `codex exec review`는 default로 working-tree 변경(changed or added files)을 자동 수집해 read-only로 리뷰하므로, 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
 
@@ -127,14 +136,14 @@ Bash(
   run_in_background: true
 )
 
-Agent(
-  subagent_type: "feature:code-reviewer",
-  description: "Convention reviewer",
-  prompt: <reviewer_c_prompt>
+Bash(
+  command: `codex exec review -o "<REVIEW_DIR>/conventions.md" "<reviewer_c_focus>"`,
+  description: "Codex review (Conventions)",
+  run_in_background: true
 )
 ```
 
-Bash 2개는 자동 완료 알림 후 다음 턴에 `-o` 파일을 Read로 회수, Agent는 동기 결과로 즉시 리턴된다.
+Bash 3개는 자동 완료 알림 후 다음 턴에 각 `-o` 파일(`bugs.md` / `simplicity.md` / `conventions.md`)을 Read로 회수한다.
 
 **Reviewer A focus text (Bugs & Correctness):**
 ```
@@ -165,27 +174,34 @@ not just defect spotting.
 Report findings as: <file:line> — <severity: critical|warning|suggestion> — <issue>
 ```
 
-**Reviewer C prompt (feature:code-reviewer agent):**
+**Reviewer C focus text (Project Conventions):**
+codex는 working-tree 변경분은 자동 수집하지만 이 프로젝트의 고유 규칙은 모르므로, Phase 1에서 추출한 규칙을 focus text에 그대로 주입한다.
 ```
-Review the code changes against these project rules:
+Focus on project convention adherence in this review.
+Check the code changes against these project rules:
 [paste ALL discovered rules from Phase 1, especially critical/zero-tolerance items]
 
 Check every rule against the actual code. Flag violations with exact file:line references.
 
-Changed files: [list from git diff]
+Report findings as: <file:line> — <severity: critical|warning|suggestion> — <issue>
 ```
 
-**Fallback rule** — codex 호출이 (a) Bash non-zero exit이거나 (b) `-o` 파일이 없거나 비어 있으면(codex가 최종 리뷰를 끝까지 못 낸 경우), **실패한 reviewer 자리만 LEGACY의 동등 에이전트로 대체**한다 (role-level 대체로 일관 처리):
+**Codex 실패 처리 (CODEX_MODE — Claude 에이전트로 대체하지 않는다):**
 
-- Reviewer A(Bugs & Correctness) 실패 → LEGACY Agent 2(Bugs & Correctness)로 대체
-- Reviewer B(Simplicity & DRY) 실패 → LEGACY Agent 1(Simplicity & DRY)로 대체
-- A·B 둘 다 실패하면 둘 다 대체
+codex 호출이 (a) Bash non-zero exit이거나 (b) `-o` 파일이 없거나 비어 있으면(codex가 최종 리뷰를 끝까지 못 낸 경우):
 
-성공한 codex 결과(`-o` 파일)는 그대로 활용한다. Reviewer C(convention)는 codex와 무관하게 항상 동일 동작이라 fallback 영향이 없다.
+1. 해당 reviewer를 **1회 재시도**한다 (같은 `codex exec review` 명령 재실행).
+2. 재시도 성공 → 그 `-o` 파일 결과를 정상 활용한다.
+3. 재시도도 실패 → **Claude 에이전트로 대체하지 않는다.** 사용자에게 알리고 결정을 기다린다:
+   - 실패한 reviewer 관점, 최초+재시도 2회 모두 실패한 사실, 원인 요약(stderr 또는 빈 출력)
+   - 성공한 다른 reviewer 결과는 그대로 진행한다
+   - 결정 대기: (1) 다시 재시도 (2) 해당 관점만 누락한 채 나머지 결과로 진행 (3) 중단
+
+성공한 codex 결과(`-o` 파일)는 항상 그대로 활용한다.
 
 announce 예시:
-- 하나만 실패: `"Codex Reviewer X 실패 → 해당 부분만 LEGACY 에이전트로 대체합니다."`
-- 둘 다 실패: `"Codex 호출 모두 실패 → Reviewer A·B를 LEGACY 에이전트로 대체합니다."`
+- 재시도: `"Codex Reviewer X 실패 → 1회 재시도합니다."`
+- 재시도까지 실패: `"Codex Reviewer X 재시도까지 실패 (원인: <요약>). Claude로 대체하지 않습니다 — 다시 시도할지 / 이 관점 없이 나머지 결과로 진행할지 / 중단할지 알려주세요."`
 
 #### LEGACY_MODE
 
@@ -239,7 +255,7 @@ Combine findings from all sources:
    - **Suggestion**: Could fix — minor improvements, style preferences
 
 3. **Codex output mapping** (CODEX_MODE only):
-   - 각 codex reviewer 결과는 `REVIEW_DIR`의 `-o` 파일(`bugs.md` / `simplicity.md`)에 있다 — codex의 최종 리뷰 메시지만 담긴 깨끗한 markdown이다. Read로 읽는다. stdout(진행 로그)은 무시한다.
+   - 각 codex reviewer 결과는 `REVIEW_DIR`의 `-o` 파일(`bugs.md` / `simplicity.md` / `conventions.md`)에 있다 — codex의 최종 리뷰 메시지만 담긴 깨끗한 markdown이다. Read로 읽는다. stdout(진행 로그)은 무시한다.
    - **Severity 토큰이 응답에 있는 경우** — 키워드 매핑: `critical`/`high`/`severe` → 🔴 Critical, `warning`/`medium`/`moderate` → ⚠️ Warning, `suggestion`/`low`/`minor`/`nit` → 💡 Suggestion
    - **Severity 토큰이 없는 경우** — issue content에서 추론한다 (confidence filter를 이미 통과한 상태이므로 finding 자체는 신뢰 가능):
      - 보안 이슈, 논리 오류, race condition, null deref, 데이터 손실 가능성 → 🔴 Critical
@@ -247,7 +263,7 @@ Combine findings from all sources:
      - unused import, 스타일, nit, 작은 중복, 네이밍 → 💡 Suggestion
      - content로도 추론이 어려울 만큼 모호하면 ⚠️ Warning (자동 수정 비용을 고려한 절충)
    - 각 finding의 source에 "(Codex)" suffix를 추가해 추적성 확보
-   - Deduplicate: 두 Codex reviewer가 같은 file:line을 지적하면 더 높은 severity 유지
+   - Deduplicate: 여러 Codex reviewer가 같은 file:line을 지적하면 더 높은 severity 유지
 
 4. **Present the report**:
 
@@ -301,7 +317,7 @@ When the user chooses "수정해줘":
 1. Fix all reported Critical and Warning issues
 2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
 3. **Re-run from Phase 4**: Launch reviewers again with the updated code
-   - In CODEX_MODE: `codex exec review` 2개 + convention 에이전트를 다시 실행한다. 결과는 **새 임시 디렉터리**(`mktemp -d` 재실행) 또는 새 파일명(예: `bugs-round2.md`)에 받아 이전 라운드 결과를 덮지 않게 한다.
+   - In CODEX_MODE: `codex exec review` 3개(Bugs / Simplicity / Conventions)를 다시 실행한다. 결과는 **새 임시 디렉터리**(`mktemp -d` 재실행) 또는 새 파일명(예: `bugs-round2.md` / `simplicity-round2.md` / `conventions-round2.md`)에 받아 이전 라운드 결과를 덮지 않게 한다.
      - 각 reviewer focus text 끝에 다음 문장을 append: `Also verify these previously reported issues are resolved: [issue list]`
    - In LEGACY_MODE: 3개 code-reviewer 에이전트 재실행
    - ALL reviewers receive: (a) the list of previously reported issues to verify resolution, (b) instruction to check for new issues introduced by the fixes
