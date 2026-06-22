@@ -312,15 +312,20 @@ Present findings and wait for the user's decision:
 
 **CRITICAL**: Fixing issues without re-review is prohibited. Every fix round MUST be followed by a re-review.
 
+**재리뷰 스코프 원칙 (가장 중요)**: 재리뷰는 **첫 리뷰와 정확히 동일한 풀 스코프**로 수행한다. "내가 수정한 부분이 잘 적용됐는지"만 확인하는 좁은 점검이 **아니다.** 재리뷰의 1순위 목적은 변경분 전체를 *마치 처음 보는 것처럼* 다시 리뷰해서, **첫 리뷰에서 미처 발견하지 못한 기존 이슈까지 찾아내는 것**이다. 이전 이슈 해결 검증과 수정으로 인한 새 이슈 점검은 그 위에 *추가로* 얹는 부차 작업일 뿐, 재리뷰 스코프를 거기로 좁히면 안 된다. (재리뷰가 수정 검증만 하다 첫 리뷰가 놓친 버그를 계속 못 잡는 회귀를 막기 위한 규칙.)
+
 When the user chooses "수정해줘":
 
 1. Fix all reported Critical and Warning issues
-2. Announce: "수정이 완료되었습니다. 재검토를 시작하겠습니다."
-3. **Re-run from Phase 4**: Launch reviewers again with the updated code
-   - In CODEX_MODE: `codex exec review` 3개(Bugs / Simplicity / Conventions)를 다시 실행한다. 결과는 **새 임시 디렉터리**(`mktemp -d` 재실행) 또는 새 파일명(예: `bugs-round2.md` / `simplicity-round2.md` / `conventions-round2.md`)에 받아 이전 라운드 결과를 덮지 않게 한다.
-     - 각 reviewer focus text 끝에 다음 문장을 append: `Also verify these previously reported issues are resolved: [issue list]`
-   - In LEGACY_MODE: 3개 code-reviewer 에이전트 재실행
-   - ALL reviewers receive: (a) the list of previously reported issues to verify resolution, (b) instruction to check for new issues introduced by the fixes
+2. Announce: "수정이 완료되었습니다. 변경분 전체를 처음부터 다시 검토하겠습니다."
+3. **Re-run from Phase 4 — 변경분 전체를 첫 리뷰와 동일하게 full re-review**: 수정된 코드를 *마치 처음 보는 것처럼* 첫 리뷰와 동일한 reviewer 구성(Bugs / Simplicity / Conventions)·동일한 변경 스코프로 처음부터 다시 리뷰한다.
+   - In CODEX_MODE: `codex exec review` 3개(Bugs / Simplicity / Conventions)를 다시 실행한다. `codex exec review`는 working-tree 변경분을 자동 수집하므로, 변경이 아직 커밋되지 않은 한 첫 리뷰와 동일한 full 스코프가 그대로 유지된다 — focus text의 review 관점도 첫 리뷰와 동일하게 쓴다. 결과는 **새 임시 디렉터리**(`mktemp -d` 재실행) 또는 새 파일명(예: `bugs-round2.md` / `simplicity-round2.md` / `conventions-round2.md`)에 받아 이전 라운드 결과를 덮지 않게 한다.
+     - 각 reviewer focus text 끝에 다음 문장을 append (full re-review가 주, 이전 이슈 검증은 부차임을 명시): `This is a FULL re-review with the same scope as the first pass. Independently re-examine ALL of the changed code and surface every issue you find, including ones the first pass may have missed — do NOT narrow your review to the fixed lines. As a secondary check only, also confirm these previously reported issues are resolved: [issue list]`
+   - In LEGACY_MODE: 3개 code-reviewer 에이전트를 첫 리뷰와 동일한 focus·동일한 변경 스코프로 재실행한다.
+   - ALL reviewers receive, **in this priority order**:
+     - **(a) [1순위] 변경분 전체를 첫 리뷰와 동일 스코프로 처음부터 다시 리뷰** — 첫 리뷰가 놓쳤을 수 있는 기존 이슈를 새로 발굴하는 것이 주목적
+     - (b) [부차] the list of previously reported issues to verify resolution
+     - (c) [부차] check for new issues introduced by the fixes
 4. Consolidate results (Phase 5) and run build verification (Phase 6)
 5. If new issues are found → present them → fix → **re-review again** (repeat this loop)
 6. If no Critical/Warning issues remain → announce: "재검토 완료 — 모든 이슈가 해결되었습니다." 그리고 이 리뷰 사이클에서 만든 `REVIEW_DIR`(들)을 `rm -rf`로 정리한다.
@@ -333,7 +338,7 @@ This loop continues until either:
 - No Critical or Warning issues remain
 - The user explicitly chooses "이대로 진행" to accept remaining issues
 
-**Never skip the re-review step.** If the user or the implementing agent fixes issues, always re-invoke this skill to verify the fixes.
+**Never skip the re-review step, and never narrow it to a fix-verification pass.** If the user or the implementing agent fixes issues, always re-invoke this skill and run a full re-review at the same scope as the first pass — verifying the fixes is only a secondary check on top of that.
 
 ## Communication
 
