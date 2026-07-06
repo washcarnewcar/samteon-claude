@@ -15,3 +15,5 @@ export CODEX_SELF_IMPROVE_AUTO=1
 ```
 
 State is stored in `PLUGIN_DATA` when Codex provides it, otherwise under `~/.codex-self-improvement`.
+
+By default, new skills created through the manager are written to `~/.codex/skills`. The manager can also read existing user skills from `~/.agents/skills` for compatibility, and `CODEX_SELF_IMPROVE_CREATE_ROOT` can override the create location.

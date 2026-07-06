@@ -9,9 +9,15 @@ import os
 import re
 import shutil
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+try:
+    import fcntl
+except Exception:  # pragma: no cover - Windows fallback
+    fcntl = None
 
 VALID_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 ALLOWED_SUPPORT_DIRS = {"references", "templates", "scripts", "assets"}
@@ -43,6 +49,10 @@ def data_dir() -> Path:
 
 def usage_path() -> Path:
     return data_dir() / "usage.json"
+
+
+def usage_lock_path() -> Path:
+    return data_dir() / "usage.lock"
 
 
 def events_path() -> Path:
@@ -82,10 +92,16 @@ def default_skill_roots(cwd: Optional[Path] = None) -> List[Path]:
     else:
         cwd = cwd or Path.cwd()
         repo_root = _git_root(cwd) or cwd
-        repo_skills = repo_root / ".agents" / "skills"
-        if repo_skills.exists():
-            roots.append(repo_skills)
+        for repo_skills in (
+            repo_root / ".agents" / "skills",
+            repo_root / ".codex" / "skills",
+        ):
+            if repo_skills.exists():
+                roots.append(repo_skills)
         roots.append(Path.home() / ".agents" / "skills")
+        codex_skills = Path.home() / ".codex" / "skills"
+        if codex_skills.exists():
+            roots.append(codex_skills)
 
     unique: List[Path] = []
     seen = set()
@@ -99,7 +115,7 @@ def default_skill_roots(cwd: Optional[Path] = None) -> List[Path]:
 
 def default_create_root() -> Path:
     env = os.environ.get("CODEX_SELF_IMPROVE_CREATE_ROOT")
-    root = Path(env).expanduser() if env else Path.home() / ".agents" / "skills"
+    root = Path(env).expanduser() if env else Path.home() / ".codex" / "skills"
     root.mkdir(parents=True, exist_ok=True)
     return root.resolve()
 
@@ -160,6 +176,29 @@ def append_jsonl(path: Path, record: Dict[str, Any]) -> None:
         handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
 
+@contextmanager
+def usage_lock() -> Iterable[None]:
+    if fcntl is None:
+        yield
+        return
+    lock = usage_lock_path()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with lock.open("w", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def mutate_usage(mutator: Any) -> Any:
+    with usage_lock():
+        data = load_usage()
+        result = mutator(data)
+        save_usage(data)
+        return result
+
+
 def parse_frontmatter(text: str) -> Tuple[Dict[str, str], str]:
     if not text.startswith("---\n"):
         raise SkillStoreError("SKILL.md must start with YAML frontmatter.")
@@ -200,13 +239,13 @@ def iter_skill_files(roots: Optional[List[Path]] = None) -> Iterable[Path]:
     for root in roots:
         if not root.exists():
             continue
-        archive = root / ".archive"
         for skill_md in root.rglob("SKILL.md"):
             try:
-                skill_md.relative_to(archive)
-                continue
+                rel_parts = skill_md.relative_to(root).parts[:-1]
             except ValueError:
-                pass
+                continue
+            if any(part.startswith(".") for part in rel_parts):
+                continue
             yield skill_md
 
 
@@ -295,6 +334,14 @@ def _safe_relative_path(file_path: str) -> Path:
     return rel
 
 
+def _frontmatter_pinned(skill_dir: Path) -> bool:
+    try:
+        meta, _ = parse_frontmatter((skill_dir / "SKILL.md").read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return str(meta.get("pinned") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def backup_skill(skill_dir: Path, reason: str = "manual") -> Dict[str, Any]:
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     name = read_skill_name(skill_dir / "SKILL.md")
@@ -341,41 +388,46 @@ def record_usage(
     created_by: Optional[str] = None,
 ) -> Dict[str, Any]:
     name = validate_name(name)
-    data = load_usage()
-    rec = data.setdefault("skills", {}).setdefault(
-        name,
-        {
-            "created_at": now_iso(),
-            "created_by": created_by or "unknown",
-            "state": "active",
-            "pinned": False,
-            "use_count": 0,
-            "view_count": 0,
-            "patch_count": 0,
-        },
-    )
-    if created_by and rec.get("created_by") in (None, "unknown"):
-        rec["created_by"] = created_by
-    if view:
-        rec["view_count"] = int(rec.get("view_count") or 0) + 1
-        rec["last_viewed_at"] = now_iso()
-    if use:
-        rec["use_count"] = int(rec.get("use_count") or 0) + 1
-        rec["last_used_at"] = now_iso()
-    if patch:
-        rec["patch_count"] = int(rec.get("patch_count") or 0) + 1
-        rec["last_patched_at"] = now_iso()
-    save_usage(data)
-    return rec
+
+    def _mutate(data: Dict[str, Any]) -> Dict[str, Any]:
+        rec = data.setdefault("skills", {}).setdefault(
+            name,
+            {
+                "created_at": now_iso(),
+                "created_by": created_by or "unknown",
+                "state": "active",
+                "pinned": False,
+                "use_count": 0,
+                "view_count": 0,
+                "patch_count": 0,
+            },
+        )
+        if created_by and rec.get("created_by") in (None, "unknown"):
+            rec["created_by"] = created_by
+        if view:
+            rec["view_count"] = int(rec.get("view_count") or 0) + 1
+            rec["last_viewed_at"] = now_iso()
+        if use:
+            rec["use_count"] = int(rec.get("use_count") or 0) + 1
+            rec["last_used_at"] = now_iso()
+        if patch:
+            rec["patch_count"] = int(rec.get("patch_count") or 0) + 1
+            rec["last_patched_at"] = now_iso()
+        if (view or use or patch) and rec.get("state") == "stale":
+            rec["state"] = "active"
+        return rec
+
+    return mutate_usage(_mutate)
 
 
 def record_tool_use(tool_name: str, payload: Dict[str, Any]) -> None:
-    data = load_usage()
-    rec = data.setdefault("tools", {}).setdefault(tool_name, {"count": 0})
-    rec["count"] = int(rec.get("count") or 0) + 1
-    rec["last_used_at"] = now_iso()
-    rec["last_payload_keys"] = sorted(payload.keys())
-    save_usage(data)
+    def _mutate(data: Dict[str, Any]) -> None:
+        rec = data.setdefault("tools", {}).setdefault(tool_name, {"count": 0})
+        rec["count"] = int(rec.get("count") or 0) + 1
+        rec["last_used_at"] = now_iso()
+        rec["last_payload_keys"] = sorted(payload.keys())
+
+    mutate_usage(_mutate)
     append_jsonl(events_path(), {"at": now_iso(), "type": "tool", "tool": tool_name})
 
 
@@ -433,10 +485,12 @@ def pin_skill(name: str, pinned: bool = True) -> Dict[str, Any]:
     name = validate_name(name)
     if not find_skill(name, include_archived=True):
         raise SkillStoreError(f"Skill '{name}' was not found.")
-    data = load_usage()
-    rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso(), "state": "active"})
-    rec["pinned"] = bool(pinned)
-    save_usage(data)
+
+    def _mutate(data: Dict[str, Any]) -> None:
+        rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso(), "state": "active"})
+        rec["pinned"] = bool(pinned)
+
+    mutate_usage(_mutate)
     return {"action": "pin" if pinned else "unpin", "name": name, "pinned": bool(pinned)}
 
 
@@ -445,20 +499,21 @@ def archive_skill(name: str) -> Dict[str, Any]:
     skill_dir = find_skill(name)
     if not skill_dir:
         raise SkillStoreError(f"Skill '{name}' was not found.")
-    data = load_usage()
-    rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso(), "state": "active"})
-    if rec.get("pinned"):
-        raise SkillStoreError(f"Skill '{name}' is pinned and cannot be archived.")
-    root = _containing_root(skill_dir)
-    archive_dir = root / ".archive" / name
-    if archive_dir.exists():
-        raise SkillStoreError(f"Archive destination already exists: {archive_dir}")
-    backup = backup_skill(skill_dir, reason="archive")
-    archive_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(skill_dir), str(archive_dir))
-    rec["state"] = "archived"
-    rec["archived_at"] = now_iso()
-    save_usage(data)
+    with usage_lock():
+        data = load_usage()
+        rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso(), "state": "active"})
+        if rec.get("pinned") or _frontmatter_pinned(skill_dir):
+            raise SkillStoreError(f"Skill '{name}' is pinned and cannot be archived.")
+        root = _containing_root(skill_dir)
+        archive_dir = root / ".archive" / name
+        if archive_dir.exists():
+            raise SkillStoreError(f"Archive destination already exists: {archive_dir}")
+        backup = backup_skill(skill_dir, reason="archive")
+        archive_dir.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(skill_dir), str(archive_dir))
+        rec["state"] = "archived"
+        rec["archived_at"] = now_iso()
+        save_usage(data)
     return {"action": "archive", "name": name, "path": str(archive_dir), "backup": backup["backup_id"]}
 
 
@@ -472,11 +527,13 @@ def restore_skill(name: str, root: Optional[str] = None) -> Dict[str, Any]:
             if dest.exists():
                 raise SkillStoreError(f"Restore destination already exists: {dest}")
             shutil.move(str(archived), str(dest))
-            data = load_usage()
-            rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso()})
-            rec["state"] = "active"
-            rec["restored_at"] = now_iso()
-            save_usage(data)
+
+            def _mutate(data: Dict[str, Any]) -> None:
+                rec = data.setdefault("skills", {}).setdefault(name, {"created_at": now_iso()})
+                rec["state"] = "active"
+                rec["restored_at"] = now_iso()
+
+            mutate_usage(_mutate)
             return {"action": "restore", "name": name, "path": str(dest)}
     raise SkillStoreError(f"Archived skill '{name}' was not found.")
 
@@ -506,6 +563,19 @@ def _latest_activity(record: Dict[str, Any], skill_dir: Path) -> datetime:
     return datetime.fromtimestamp((skill_dir / "SKILL.md").stat().st_mtime, tz=timezone.utc)
 
 
+def _use_count(record: Dict[str, Any]) -> int:
+    try:
+        return int(record.get("use_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _archive_days_for(record: Dict[str, Any], base_days: int) -> int:
+    if _use_count(record) >= 3:
+        return base_days * 2
+    return base_days
+
+
 def curate(dry_run: bool = True, stale_days: int = 30, archive_days: int = 90) -> Dict[str, Any]:
     usage = load_usage()
     now = datetime.now(timezone.utc)
@@ -516,17 +586,23 @@ def curate(dry_run: bool = True, stale_days: int = 30, archive_days: int = 90) -
         skill_dir = Path(item["path"]).parent
         latest = _latest_activity(rec, skill_dir)
         age_days = (now - latest).days
-        pinned = bool(rec.get("pinned"))
+        pinned = bool(rec.get("pinned")) or _frontmatter_pinned(skill_dir)
+        created_by = str(rec.get("created_by") or "user")
         action = "keep"
         reason = "recent"
-        if pinned:
+        if created_by != "agent":
+            reason = f"protected {created_by} skill"
+        elif pinned:
             reason = "pinned"
-        elif age_days >= archive_days:
+        elif age_days >= _archive_days_for(rec, archive_days):
             action = "archive"
             reason = f"inactive for {age_days} days"
         elif age_days >= stale_days:
             action = "mark_stale"
             reason = f"inactive for {age_days} days"
+        elif rec.get("state") == "stale":
+            action = "reactivate"
+            reason = "recent activity"
         rows.append(
             {
                 "name": name,
@@ -534,6 +610,8 @@ def curate(dry_run: bool = True, stale_days: int = 30, archive_days: int = 90) -
                 "reason": reason,
                 "age_days": age_days,
                 "pinned": pinned,
+                "created_by": created_by,
+                "use_count": _use_count(rec),
                 "path": item["path"],
             }
         )
@@ -543,11 +621,19 @@ def curate(dry_run: bool = True, stale_days: int = 30, archive_days: int = 90) -
             if row["candidate_action"] == "archive":
                 applied.append(archive_skill(row["name"]))
             elif row["candidate_action"] == "mark_stale":
-                data = load_usage()
-                rec = data.setdefault("skills", {}).setdefault(row["name"], {"created_at": now_iso()})
-                rec["state"] = "stale"
-                save_usage(data)
+                def _mark_stale(data: Dict[str, Any], skill_name: str = row["name"]) -> None:
+                    rec = data.setdefault("skills", {}).setdefault(skill_name, {"created_at": now_iso()})
+                    rec["state"] = "stale"
+
+                mutate_usage(_mark_stale)
                 applied.append({"action": "mark_stale", "name": row["name"]})
+            elif row["candidate_action"] == "reactivate":
+                def _reactivate(data: Dict[str, Any], skill_name: str = row["name"]) -> None:
+                    rec = data.setdefault("skills", {}).setdefault(skill_name, {"created_at": now_iso()})
+                    rec["state"] = "active"
+
+                mutate_usage(_reactivate)
+                applied.append({"action": "reactivate", "name": row["name"]})
     return {"dry_run": dry_run, "stale_days": stale_days, "archive_days": archive_days, "candidates": rows, "applied": applied}
 
 
