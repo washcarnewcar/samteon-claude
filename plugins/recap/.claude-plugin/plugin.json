@@ -1,0 +1,19 @@
+{
+  "name": "recap",
+  "version": "1.0.0",
+  "description": "방금 끝낸 작업을 '이전 구조→문제→수정→영향받은 파일→검증' 5단 회고로 채팅에 정리 (파일 저장·커밋 없이 출력만)",
+  "author": {
+    "name": "김수민",
+    "email": "su2490min@gmail.com"
+  },
+  "homepage": "https://github.com/samton-inc/samton-claude",
+  "repository": "https://github.com/samton-inc/samton-claude",
+  "license": "MIT",
+  "keywords": [
+    "recap",
+    "retrospective",
+    "회고",
+    "summary",
+    "workflow"
+  ]
+}

@@ -9,6 +9,7 @@ Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함�
 | **feature** | development | 기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함) |
 | **self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
 | **codex-self-improvement** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
+| **recap** | development | 방금 끝낸 작업을 '이전 구조→문제→수정→영향받은 파일→검증' 5단 회고로 채팅에 정리 (파일 저장·커밋 없이 출력만) |
 | **git** | git | Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지 |
 | **ascii-diagram** | document | 한글 폭(2칸) 보정 ASCII 박스 다이어그램·ERD 텍스트 생성 (이미지 변환 없이 코드블록 전달) |
 | **dev-log** | document | 빌드 에러·경고 해결 과정을 개발 블로그 스타일 마크다운으로 자동 기록 |

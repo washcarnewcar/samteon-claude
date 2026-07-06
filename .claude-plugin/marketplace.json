@@ -139,6 +139,18 @@
       },
       "license": "MIT",
       "category": "development"
+    },
+    {
+      "name": "recap",
+      "source": "./plugins/recap",
+      "description": "방금 끝낸 작업을 '이전 구조→문제→수정→영향받은 파일→검증' 5단 회고로 채팅에 정리 (파일 저장·커밋 없이 출력만)",
+      "version": "1.0.0",
+      "author": {
+        "name": "김수민",
+        "email": "su2490min@gmail.com"
+      },
+      "license": "MIT",
+      "category": "development"
     }
   ]
 }
