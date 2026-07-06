@@ -1,0 +1,19 @@
+{
+  "name": "ascii-diagram",
+  "version": "1.0.0",
+  "description": "한글 폭(2칸) 보정 ASCII 박스 다이어그램·ERD를 텍스트로 생성 — 이미지 변환 없이 코드블록으로 바로 전달",
+  "author": {
+    "name": "김수민",
+    "email": "su2490min@gmail.com"
+  },
+  "homepage": "https://github.com/samton-inc/samton-claude",
+  "repository": "https://github.com/samton-inc/samton-claude",
+  "license": "MIT",
+  "keywords": [
+    "diagram",
+    "erd",
+    "ascii",
+    "korean",
+    "architecture"
+  ]
+}
