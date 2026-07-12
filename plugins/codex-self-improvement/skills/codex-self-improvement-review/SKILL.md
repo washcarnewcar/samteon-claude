@@ -9,26 +9,69 @@ Use this skill to decide whether a recent interaction should update Codex's reus
 
 ## Review Policy
 
-1. Inspect the current thread evidence before writing anything.
-2. Prefer patching an existing relevant skill over creating a new narrow skill.
-3. Create a new skill only when the learning is class-level and likely to recur.
-4. Put session-specific details in `references/`, reusable starters in `templates/`, and deterministic helpers in `scripts/`.
-5. Capture user corrections about workflow, tone, formatting, or verification in the skill that governs that class of task.
-6. Do not encode transient setup failures, missing binaries, one-off paths, temporary outages, or negative claims like "tool X does not work".
-7. Never edit bundled/system/admin skills. Work in user or repo skill roots only.
-8. Keep changes small, make a backup first, and report the diff summary.
+Inspect the current thread evidence before writing anything. Then walk this
+ladder and act on the EARLIEST rung that applies (Hermes review-priority
+order):
+
+1. **Patch a skill that was in play this session.** If a skill was loaded or
+   invoked (`$skill-name`) during this thread and it turned out wrong, stale,
+   or incomplete — that is the skill to fix first. It routed the work, so its
+   gaps are exactly what future sessions will hit.
+2. **Extend an existing relevant skill.** Prefer adding the gotcha, corrected
+   step, or example to a skill that already governs this class of task over
+   creating a new narrow sibling.
+3. **Embed the corrected preference in the governing skill.** User corrections
+   about workflow, tone, formatting, or verification belong in the body of the
+   skill that governs that class of task — so the next session starts already
+   corrected.
+4. **Create a new skill — last resort.** Only when the learning is class-level
+   and likely to recur, and no existing skill covers it.
+
+Additional rules:
+
+- **Name anti-patterns** (a bad name means the knowledge is not class-level —
+  fall back up the ladder or capture nothing): a PR number, an error string, a
+  session label like `fix-X` / `debug-Y`, a bare library name with no
+  technique, anything tied to one instance.
+- **Duplicates: report, don't merge.** If you notice two skills covering the
+  same ground, note it in your output — consolidation is the
+  `$codex-skill-curator` pass's job, not the review's.
+- Do not encode transient errors that resolved within the session (if a retry
+  worked, the lesson — if any — is the retry pattern, not the failure), missing
+  binaries, one-off paths, temporary outages, or negative claims like "tool X
+  does not work". Setup failures are capturable only as the FIX (install
+  command, config, env var).
+- Never edit bundled/system/admin skills. Work in user or repo skill roots only.
+- Keep changes small, make a backup first, and report the diff summary.
+
+## Authoring Standards
+
+- `description` is ONE short sentence stating the capability. After writing
+  it, count the length yourself and trim BEFORE saving — long descriptions
+  bloat skill discovery and degrade routing (the store warns above
+  ~200 chars and hard-rejects above 1024).
+- Record only commands, flags, and paths you actually ran or observed in this
+  thread — never invent plausible-looking ones.
+- Never write environment-derived identity (OS username, email, git config)
+  into frontmatter fields such as `author` — skills get shared, and that is a
+  privacy leak the user never opted into.
 
 ## Tooling
 
 Prefer the plugin MCP tools when available:
 
 - `codex_skill_list`
-- `codex_skill_view`
-- `codex_skill_create`
+- `codex_skill_view` — also unlocks patch/write for the viewed file
+  (read-before-write guard: editing an existing file you never viewed in this
+  session is rejected; view first, then edit using the returned content)
+- `codex_skill_create` — pass `reason` to record why the skill exists
 - `codex_skill_patch`
 - `codex_skill_write_file`
 - `codex_skill_archive`
 - `codex_skill_curate`
+- `codex_skill_backups` / `codex_skill_rollback` — list backups and restore
+  one by exact backup_id (the rollback itself is undoable)
+- `codex_skill_scan` — advisory secrets/injection scan of one skill
 - `codex_self_improvement_status`
 
 If the MCP server is not active, run the local helper script from this plugin:

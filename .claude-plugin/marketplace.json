@@ -120,7 +120,7 @@
       "name": "codex-self-improvement",
       "source": "./plugins/codex-self-improvement",
       "description": "Codex hook + MCP 기반 자기개선 루프. 턴 리뷰, 스킬 telemetry, backup, pin, archive, dry-run curator를 제공",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "author": {
         "name": "Samton",
         "email": "solstice@samton.co.kr"

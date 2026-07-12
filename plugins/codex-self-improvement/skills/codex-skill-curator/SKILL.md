@@ -21,12 +21,19 @@ Use this skill when the user asks to clean up, audit, curate, archive, restore, 
 
 Prefer MCP tools from the bundled `codex-self-improvement` server:
 
-- `codex_skill_curate` for stale/archive candidates
+- `codex_skill_curate` for stale/archive candidates (each run persists a
+  report under the data dir's `logs/curator/` — cite it when summarizing)
 - `codex_skill_usage` for telemetry
-- `codex_skill_archive` for reversible archive moves
+- `codex_skill_archive` for reversible archive moves (a name collision in
+  `.archive/` gets a timestamp suffix automatically; restore finds it)
 - `codex_skill_restore` for archived skill recovery
+- `codex_skill_backups` / `codex_skill_rollback` to list backups and restore
+  one by exact backup_id — the rollback backs up the current content first,
+  so it is itself undoable (`undo_backup` in the result)
+- `codex_skill_prune_backups` to keep only the newest N backups per skill
 - `codex_skill_pin` for pin/unpin
-- `codex_self_improvement_status` for plugin health
+- `codex_self_improvement_status` for plugin health (shows `last_curate_at`
+  and the last report path)
 
 If MCP is unavailable, run:
 
