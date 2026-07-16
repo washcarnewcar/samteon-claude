@@ -67,7 +67,10 @@ def _count_learned_skills():
         try:
             with open(path, encoding="utf-8", errors="ignore") as fh:
                 head = fh.read(2048)
-            if PROVENANCE_KEY in head:
+            # either explicit provenance or an origin marker counts (a distiller
+            # may write its own metadata block with only origin: distilled,
+            # which the validator then leaves untouched)
+            if PROVENANCE_KEY in head or "origin: distilled" in head:
                 learned += 1
         except Exception:
             pass
@@ -111,8 +114,10 @@ def main():
         "보내고, 파일 카드의 '스킬 저장' 버튼으로 claude.ai 에 등록하도록 안내하세요. "
         "등록된 스킬만 다음 세션 컨테이너에 자동 동기화됩니다 (/save-skill 이 이 흐름을 "
         "대신 처리합니다).",
-        "스킬 name 에는 'claude'/'anthropic' 을 쓰지 마세요 — claude.ai 예약어라서 "
-        "'스킬 저장'이 거부됩니다.",
+        "스킬 name 에는 'claude'/'anthropic' 을(예약어), description 에는 꺾쇠 태그 "
+        "형태(<...> placeholder 포함)를 쓰지 마세요 — claude.ai '스킬 저장'이 거부합니다. "
+        "미저장 스킬은 세션 도중에도 주기적 스킬 동기화가 삭제할 수 있으니(실측), "
+        "증류 직후 바로 전송·저장을 안내하세요.",
         "학습 스킬에서 낡거나 틀린 내용을 발견하면 그 자리에서 SKILL.md 를 patch 하고, "
         "patch 한 스킬도 다시 저장(SendUserFile → '스킬 저장')하도록 안내하세요.",
     ]

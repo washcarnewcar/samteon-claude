@@ -220,6 +220,14 @@ def _advisory(text, file_path=None):
                      "이 이름은 '스킬 저장' 버튼에서 거부되어 다음 세션으로 영속화할 수 없으니, "
                      "지금 디렉토리명과 name 을 함께 예약어 없는 이름으로 바꾸세요."
                      .format(name))
+    # Cowork: claude.ai '스킬 저장' rejects XML-tag-like text in the description
+    # (실측 2026-07-16: "SKILL.md description cannot contain XML tags" — a
+    # `mnt/<folder>` placeholder tripped it). Body angle brackets are fine
+    # (anthropic registry skills carry them); only the description matters.
+    if re.search(r"<[^\s<>][^<>]*>", desc):
+        notes.append("description 에 꺾쇠 태그 형태(<...>)가 있습니다. claude.ai '스킬 저장'이 "
+                     "XML 태그로 간주해 거부하니, 지금 placeholder 를 일반 표기(예: "
+                     "mnt/<folder> → mnt/폴더명)로 바꾸세요. 본문(body)의 꺾쇠는 무방합니다.")
     # name ≠ dir mismatch: usage telemetry keys on the DIR name — a mismatch
     # silently splits the record. Advisory only (never blocking, so a
     # pre-existing mismatched skill can't fall into an edit→rollback loop).

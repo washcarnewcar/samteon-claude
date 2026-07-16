@@ -53,6 +53,22 @@ def test_clean_name_no_reserved_word_advisory(run_validator, sandbox):
     assert "예약어" not in out
 
 
+def test_angle_bracket_in_description_gets_advisory(run_validator, sandbox):
+    # claude.ai '스킬 저장' rejects XML-tag-like text in the description
+    # (observed: a mnt/<folder> placeholder → "cannot contain XML tags").
+    body = "---\nname: mount-tricks\ndescription: mnt/<folder> 경로에서 사용\n---\nbody\n"
+    d = sandbox.make_skill("mount-tricks", body)
+    out = run_validator(_payload(d / "SKILL.md"))
+    assert "꺾쇠" in out and "롤백" not in out
+
+
+def test_angle_bracket_in_body_is_fine(run_validator, sandbox):
+    body = "---\nname: body-brackets\ndescription: plain description\n---\nuse <placeholder> here\n"
+    d = sandbox.make_skill("body-brackets", body)
+    out = run_validator(_payload(d / "SKILL.md"))
+    assert "꺾쇠" not in out
+
+
 def test_broken_edit_rolls_back_from_backup(run_validator, sandbox, store_data):
     d = sandbox.make_skill("frag-skill")
     good = (d / "SKILL.md").read_text(encoding="utf-8")

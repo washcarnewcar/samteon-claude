@@ -8,7 +8,9 @@
 
 **문제 1 — SessionStart 훅 race.** 콜드 Cowork 컨테이너에서는 훅 등록(`load_plugin_hooks`, 부팅 후 ~2.6초)이 플러그인 다운로드 완료(`plugins_sync_complete`, ~5초)보다 먼저 실행됩니다. SessionStart 이벤트는 그 사이에 지나가므로 **플러그인의 SessionStart 훅만 매번 유실**됩니다 (PreToolUse/PostToolUse/Stop은 이벤트가 나중에 발생해 정상 동작 — 진단 로그 타임라인과 훅 부산물 파일로 검증).
 
-**문제 2 — 영속성.** 컨테이너의 `~/.claude/skills`와 usage telemetry(`~/.claude/self-improve`)는 세션 종료와 함께 사라집니다. 스킬 동기화는 claude.ai → 컨테이너 **단방향 다운로드**뿐이라, 증류한 스킬을 그대로 두면 다음 세션에 남지 않습니다. 시간 기반 큐레이터(30일 stale/90일 archive)도 상태가 매 세션 리셋되어 무의미해집니다.
+**문제 2 — 영속성.** 컨테이너의 `~/.claude/skills`와 usage telemetry(`~/.claude/self-improve`)는 세션 종료와 함께 사라집니다. 스킬 동기화는 claude.ai → 컨테이너 **단방향 다운로드**뿐이라, 증류한 스킬을 그대로 두면 다음 세션에 남지 않습니다. 더 나쁘게는, **주기적 스킬 동기화(약 10분 간격)가 registry에 없는 학습 스킬 디렉터리를 세션 도중에도 삭제**하는 것이 관찰됐습니다 — 증류 즉시 저장이 필수인 이유입니다. 시간 기반 큐레이터(30일 stale/90일 archive)도 상태가 매 세션 리셋되어 무의미해집니다.
+
+**claude.ai '스킬 저장' 거부 규칙 (실측).** ① `name` 에 예약어 `claude`/`anthropic` 포함 시 거부, ② `description` 에 꺾쇠 태그 형태(`<...>`, placeholder 포함) 포함 시 거부. 본문(body)의 꺾쇠는 무방합니다. PostToolUse 검증기가 둘 다 작성 시점에 경고합니다.
 
 ## 해법: 루프를 claude.ai 저장으로 닫는다
 

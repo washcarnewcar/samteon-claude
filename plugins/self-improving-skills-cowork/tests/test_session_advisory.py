@@ -47,6 +47,17 @@ def test_no_count_line_when_no_learned_skills(run_advisory):
     assert "개가 동기화되어" not in ctx
 
 
+def test_origin_marker_alone_counts_as_learned(run_advisory, sandbox):
+    # a distiller may write its own metadata with only origin: distilled —
+    # the validator leaves existing metadata untouched, so the counter must
+    # accept either marker
+    sandbox.make_skill("origin-only",
+                       "---\nname: origin-only\ndescription: d\nmetadata:\n"
+                       "  origin: distilled\n---\nbody\n")
+    ctx = _ctx(run_advisory())
+    assert "학습 스킬 1개" in ctx
+
+
 def test_stop_fallback_flag_respected(run_advisory, sandbox):
     # if the Stop-hook fallback already showed the advisory, stay silent
     d = sandbox.home / ".claude" / "self-improve"

@@ -261,8 +261,10 @@ def _advisory_fallback():
     return ("[self-improving-skills-cowork] 자기개선 루프 활성 (세션 첫 안내가 유실되어 "
             "여기서 대신 전합니다): 이 컨테이너의 ~/.claude/skills 는 세션 종료 시 "
             "사라집니다. 증류·patch 한 SKILL.md 는 SendUserFile 로 사용자에게 보내 "
-            "'스킬 저장' 버튼으로 claude.ai 에 등록하도록 안내해야 다음 세션에 남습니다. "
-            "스킬 name 에 'claude'/'anthropic' 금지(예약어 — 저장 거부됨).")
+            "'스킬 저장' 버튼으로 claude.ai 에 등록하도록 안내해야 다음 세션에 남습니다 "
+            "(미저장 스킬은 세션 도중 주기 동기화로 삭제될 수도 있음 — 즉시 저장). "
+            "name 에 'claude'/'anthropic' 금지, description 에 꺾쇠 태그(<...>) 금지 "
+            "— 둘 다 저장이 거부됩니다.")
 
 
 def main():

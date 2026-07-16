@@ -147,6 +147,10 @@ ported from Anthropic's skill-creator guidance):
 - Aim for **<=500 chars**: every learned skill's description is injected into
   every future session's system prompt, so length is a permanent context cost
   (the validator warns above 500).
+- **No angle-bracket placeholders in the description** — claude.ai's '스킬 저장'
+  rejects XML-tag-like text there ("description cannot contain XML tags";
+  observed with `mnt/<folder>`). Write placeholders in plain words instead
+  (`mnt/폴더명`, `PROJECT_DIR`). Angle brackets in the BODY are fine.
 - After writing the description, **COUNT the characters yourself**; if it is
   over 500, cut it down BEFORE saving — do not save long and wait for the
   validator warning to fix it.
@@ -178,7 +182,10 @@ plugin's counter and curator when synced to a local machine.
      보내고, 파일 카드의 '스킬 저장' 버튼으로 claude.ai 에 등록하도록 안내하세요
      (이 컨테이너의 스킬은 세션 종료 시 사라집니다)."
    You cannot call SendUserFile yourself (not in your tool set) — the delivery
-   is the caller's job, and your report is what triggers it. Example:
+   is the caller's job, and your report is what triggers it. Urgency is real:
+   the container's periodic skills sync (~10-minute cadence) has been observed
+   deleting unsaved learned-skill directories MID-SESSION, so the caller should
+   deliver immediately, not at session end. Example:
    `cloud-hook-diagnostics 스킬 신규 생성: 진단 로그 타임라인으로 훅 race 판별. 저장 필요: /root/.claude/skills/cloud-hook-diagnostics/SKILL.md — SendUserFile 로 보내 '스킬 저장'을 안내하세요.`
 
 ## Special case — improving THIS plugin itself
