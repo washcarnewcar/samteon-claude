@@ -60,7 +60,7 @@ codex plugin marketplace add samton-inc/samton-plugins
 codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
 ```
 
-ChatGPT Work 전용 플러그인은 `products: ["CHATGPT"]`로 제한되어 Codex CLI에서 설치할 수 없습니다. ChatGPT 데스크톱 앱을 재시작한 뒤 Work 모드의 Plugins에서 `Samton Plugins` → `chatgpt-work-self-improving-skills`를 설치하세요.
+ChatGPT 데스크톱 앱의 Plugins Directory에는 현재 두 변형이 함께 표시됩니다. Codex에서는 `chatgpt-codex-self-improving-skills`, Work 모드에서는 `chatgpt-work-self-improving-skills`를 선택하세요. 현행 데스크톱 앱에서는 marketplace의 `policy.products`로 두 화면이 안정적으로 분리되지 않습니다.
 
 기존 설치를 최신 marketplace 구조와 버전으로 갱신하려면 다음을 실행합니다:
 
@@ -69,7 +69,7 @@ codex plugin marketplace upgrade samton-plugins
 codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
 ```
 
-갱신 후 ChatGPT 데스크톱 앱을 재시작하세요. Codex 전용 플러그인은 Codex에서, Work 전용 플러그인은 Work 모드의 Plugins에서 `Samton Plugins`를 선택해 설치·사용할 수 있습니다.
+갱신 후 ChatGPT 데스크톱 앱을 재시작하세요. `Samton Plugins` 아래에 두 변형이 함께 나타나며, 사용하는 모드에 맞는 플러그인을 설치하면 됩니다.
 
 ### 방법 3: skills.sh로 개별 스킬만 설치
 
@@ -106,7 +106,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 ## 기여 / 문의
 
-Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`, ChatGPT Work 플러그인은 `chatgpt-work/plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하며 둘 다 루트 `.agents/plugins/marketplace.json`에 등록합니다. `policy.products`로 Codex와 ChatGPT 표면을 구분합니다. 외부 사용자의 이슈·PR도 환영합니다.
+Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`, ChatGPT Work 플러그인은 `chatgpt-work/plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하며 둘 다 루트 `.agents/plugins/marketplace.json`에 등록합니다. 현행 데스크톱 앱에서는 두 변형이 같은 marketplace에 함께 표시되므로 각 모드에 맞는 변형을 선택합니다. 외부 사용자의 이슈·PR도 환영합니다.
 
 - 이슈: https://github.com/samton-inc/samton-plugins/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>

@@ -46,7 +46,7 @@ ChatGPT Work에서 완료된 작업을 검토해 재사용 가능한 교훈만 �
    codex plugin marketplace upgrade samton-plugins
    ```
 
-2. ChatGPT 데스크톱 앱을 재시작하고 Work 모드의 Plugins에서 `Samton Plugins` → `chatgpt-work-self-improving-skills`를 설치합니다. Work 전용 엔트리는 `products: ["CHATGPT"]`로 제한되어 Codex CLI의 `plugin add`로는 설치할 수 없습니다.
+2. ChatGPT 데스크톱 앱을 재시작하고 Work 모드의 Plugins에서 `Samton Plugins` → `chatgpt-work-self-improving-skills`를 설치합니다. 현행 데스크톱 앱에서는 Codex 변형도 같은 marketplace에 함께 보이므로 이름을 확인해 Work 변형을 선택하세요.
 3. 새 Work 대화에서 `@` 목록에 플러그인 또는 bundled skill이 나타나는지 확인합니다.
 4. 데스크톱의 `Created by you`에서 workspace에 공유합니다.
 5. ChatGPT 웹의 `Shared with you`에서 설치하고 새 대화를 시작합니다.
