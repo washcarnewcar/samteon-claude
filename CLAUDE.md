@@ -1,4 +1,4 @@
-# samton-claude
+# samton-plugins
 
 ## 작업 시작 규칙
 

@@ -6,8 +6,8 @@
     "name": "이정윤",
     "email": "solstice@samton.co.kr"
   },
-  "homepage": "https://github.com/samton-inc/samton-claude",
-  "repository": "https://github.com/samton-inc/samton-claude",
+  "homepage": "https://github.com/samton-inc/samton-plugins",
+  "repository": "https://github.com/samton-inc/samton-plugins",
   "license": "MIT",
   "keywords": [
     "tmap",

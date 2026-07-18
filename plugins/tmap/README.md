@@ -88,15 +88,15 @@ SK Open API Free 요금제에서 다음 엔드포인트는 **일일 1회**로 �
 Claude Code 내에서:
 
 ```
-/plugin marketplace add samton-inc/samton-claude
-/plugin install tmap@samton-claude
+/plugin marketplace add samton-inc/samton-plugins
+/plugin install tmap@samton-plugins
 ```
 
 또는 `~/.claude/settings.json`의 `enabledPlugins`에 추가:
 
 ```json
 "enabledPlugins": {
-  "tmap@samton-claude": true
+  "tmap@samton-plugins": true
 }
 ```
 
@@ -105,7 +105,7 @@ Claude Code 내에서:
 Claude Code가 아닌 다른 에이전트 환경에서 스킬만 쓰고 싶다면:
 
 ```bash
-npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/tmap/skills/tmap
+npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/tmap/skills/tmap
 ```
 
 이 방법은 `skills/tmap/` 디렉토리만 설치합니다 (Claude Code 플러그인 매니페스트·hooks는 제외).
@@ -160,7 +160,7 @@ Claude Code 환경에서:
 /plugin
 ```
 
-목록에서 `tmap@samton-claude`가 활성화되어 있는지 확인하세요.
+목록에서 `tmap@samton-plugins`가 활성화되어 있는지 확인하세요.
 
 ## 사용 예시
 
@@ -179,7 +179,7 @@ Claude에게 자연어로 물어보면 됩니다:
 
 ```bash
 # Claude Code 플러그인 환경
-cd ~/.claude/plugins/cache/samton-claude/tmap/<version>/skills/tmap/scripts
+cd ~/.claude/plugins/cache/samton-plugins/tmap/<version>/skills/tmap/scripts
 
 # skills.sh 환경
 cd ~/.agents/skills/tmap/scripts

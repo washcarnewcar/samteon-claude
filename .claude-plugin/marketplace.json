@@ -1,11 +1,11 @@
 {
-  "name": "samton-claude",
+  "name": "samton-plugins",
   "owner": {
     "name": "이정윤",
     "email": "solstice@samton.co.kr"
   },
   "metadata": {
-    "description": "Samton 팀 공용 Claude Code 플러그인 마켓플레이스"
+    "description": "Samton 팀 공용 플러그인 마켓플레이스 (Claude Code · Codex · ChatGPT work)"
   },
   "plugins": [
     {
@@ -117,10 +117,10 @@
       "category": "utility"
     },
     {
-      "name": "codex-self-improvement",
-      "source": "./plugins/codex-self-improvement",
+      "name": "chatgpt-codex-self-improving-skills",
+      "source": "./plugins/chatgpt-codex-self-improving-skills",
       "description": "Codex hook + MCP 기반 자기개선 루프. 턴 리뷰, 스킬 telemetry, backup, pin, archive, dry-run curator를 제공",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "author": {
         "name": "Samton",
         "email": "solstice@samton.co.kr"
@@ -129,10 +129,10 @@
       "category": "development"
     },
     {
-      "name": "self-improving-skills",
-      "source": "./plugins/self-improving-skills",
+      "name": "claude-code-self-improving-skills",
+      "source": "./plugins/claude-code-self-improving-skills",
       "description": "복잡한 작업 후 재사용 가능한 기법을 SKILL.md로 자동 증류하고 기존 스킬을 스스로 개선하는 자기개선 루프 (Nous Research Hermes Agent 방식의 Claude Code 이식)",
-      "version": "0.10.0",
+      "version": "0.11.0",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"
@@ -141,10 +141,10 @@
       "category": "development"
     },
     {
-      "name": "self-improving-skills-cowork",
-      "source": "./plugins/self-improving-skills-cowork",
-      "description": "Cowork(클라우드 컨테이너) 전용 자기개선 루프 — 증류된 스킬을 SendUserFile→'스킬 저장'으로 claude.ai에 영속화하고, 콜드 컨테이너의 SessionStart×플러그인 동기화 race를 UserPromptSubmit 안내로 회피 (self-improving-skills의 Cowork 변형)",
-      "version": "0.1.1",
+      "name": "claude-cowork-self-improving-skills",
+      "source": "./plugins/claude-cowork-self-improving-skills",
+      "description": "Cowork(클라우드 컨테이너) 전용 자기개선 루프 — 증류된 스킬을 SendUserFile→'스킬 저장'으로 claude.ai에 영속화하고, 콜드 컨테이너의 SessionStart×플러그인 동기화 race를 UserPromptSubmit 안내로 회피 (claude-code-self-improving-skills의 Cowork 변형)",
+      "version": "0.2.0",
       "author": {
         "name": "이정윤",
         "email": "solstice@samton.co.kr"

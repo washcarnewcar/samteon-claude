@@ -1,14 +1,15 @@
-# samton-claude
+# samton-plugins
 
-Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. 각 플러그인은 Claude Code 마켓플레이스 시스템을 통해 관리되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다.
+Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 마켓플레이스 시스템을 통해 관리되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. ChatGPT Work 전용 플러그인은 [chatgpt-work/](./chatgpt-work) 아래의 별도 marketplace(`samton-chatgpt`)로 배포됩니다.
 
 ## 수록 플러그인
 
 | 이름 | 카테고리 | 설명 |
 |---|---|---|
 | **feature** | development | 기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함) |
-| **self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
-| **codex-self-improvement** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
+| **claude-code-self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
+| **claude-cowork-self-improving-skills** | development | Cowork(클라우드 컨테이너) 전용 자기개선 루프 — claude.ai '스킬 저장' 영속화, 콜드 컨테이너 race 회피 |
+| **chatgpt-codex-self-improving-skills** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
 | **recap** | development | 방금 끝낸 작업을 '이전 구조→문제→수정→영향받은 파일→검증' 5단 회고로 채팅에 정리 (파일 저장·커밋 없이 출력만) |
 | **git** | git | Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지 |
 | **ascii-diagram** | document | 한글 폭(2칸) 보정 ASCII 박스 다이어그램·ERD 텍스트 생성 (이미지 변환 없이 코드블록 전달) |
@@ -26,15 +27,15 @@ Samton 구성원이 각자 만든 Claude Code 플러그인을 공유하고 함�
 Claude Code 내에서 마켓플레이스를 추가하면 모든 플러그인을 한 번에 관리할 수 있습니다:
 
 ```
-/plugin marketplace add samton-inc/samton-claude
+/plugin marketplace add samton-inc/samton-plugins
 ```
 
 그 후 원하는 플러그인을 개별 활성화:
 
 ```
-/plugin install feature@samton-claude
-/plugin install tmap@samton-claude
-/plugin install voice-transcriber@samton-claude
+/plugin install feature@samton-plugins
+/plugin install tmap@samton-plugins
+/plugin install voice-transcriber@samton-plugins
 # ...필요한 것만
 ```
 
@@ -42,8 +43,8 @@ Claude Code 내에서 마켓플레이스를 추가하면 모든 플러그인을 
 
 ```json
 "enabledPlugins": {
-  "feature@samton-claude": true,
-  "tmap@samton-claude": true
+  "feature@samton-plugins": true,
+  "tmap@samton-plugins": true
 }
 ```
 
@@ -55,13 +56,13 @@ Claude Code가 아닌 다른 에이전트 환경(Codex, Cursor, 독립 AI 워크
 
 ```bash
 # 예: tmap 스킬만 설치
-npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/tmap/skills/tmap
+npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/tmap/skills/tmap
 
 # 예: voice-transcriber 스킬만 설치
-npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/voice-transcriber/skills/voice-transcriber
+npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/voice-transcriber/skills/voice-transcriber
 
 # 예: feature 스킬만 설치
-npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/feature/skills/feature
+npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/feature/skills/feature
 ```
 
 각 플러그인의 스킬 경로는 `plugins/<plugin-name>/skills/<skill-name>/` 패턴을 따릅니다. 플러그인 내부 디렉토리 구조는 [여기](./plugins)에서 확인할 수 있습니다.
@@ -74,8 +75,8 @@ npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/fea
 
 | 플러그인 | 필요 의존성 |
 |---|---|
-| `self-improving-skills` | Python 3; 팀 스킬 공유(/share-skill, /sync-team-skills) 사용 시 GitHub CLI(`gh`) 인증 |
-| `codex-self-improvement` | OpenAI Codex CLI |
+| `claude-code-self-improving-skills` | Python 3; 팀 스킬 공유(/share-skill, /sync-team-skills) 사용 시 GitHub CLI(`gh`) 인증 |
+| `chatgpt-codex-self-improving-skills` | OpenAI Codex CLI |
 | `tmap` | SK Open API AppKey (https://openapi.sk.com/) |
 | `gemini-image-reader` | Google Gemini API 키 또는 CLI |
 | `voice-transcriber` | ffmpeg, Qwen3-ASR MLX 모델 (MacOS 환경) |
@@ -86,7 +87,7 @@ npx skills add https://github.com/samton-inc/samton-claude/tree/main/plugins/fea
 
 Samton 팀 공용 저장소입니다. 팀원은 자신의 플러그인을 `plugins/<name>/` 디렉토리로 추가하고 `.claude-plugin/marketplace.json`에 엔트리를 등록하면 다른 팀원들이 바로 설치해서 쓸 수 있습니다. 외부 사용자의 이슈·PR도 환영합니다.
 
-- 이슈: https://github.com/samton-inc/samton-claude/issues
+- 이슈: https://github.com/samton-inc/samton-plugins/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>
 
 ## 라이선스
