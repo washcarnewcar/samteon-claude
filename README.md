@@ -1,6 +1,6 @@
 # samton-plugins
 
-Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 마켓플레이스 시스템을 통해 관리되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. ChatGPT Work 전용 플러그인은 [chatgpt-work/](./chatgpt-work) 아래의 별도 marketplace(`samton-chatgpt`)로 배포됩니다.
+Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 `.claude-plugin/marketplace.json`, Codex 플러그인은 `.agents/plugins/marketplace.json`을 통해 각각 배포되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. ChatGPT Work 전용 플러그인은 [chatgpt-work/](./chatgpt-work) 아래의 별도 marketplace(`samton-chatgpt`)로 배포됩니다.
 
 ## 수록 플러그인
 
@@ -50,7 +50,25 @@ Claude Code 내에서 마켓플레이스를 추가하면 모든 플러그인을 
 
 자동 업데이트는 `extraKnownMarketplaces` 설정의 `autoUpdate: true`로 활성화됩니다.
 
-### 방법 2: skills.sh로 개별 스킬만 설치
+### 방법 2: Codex 공식 플러그인 marketplace
+
+Codex marketplace를 추가하고 자기개선 플러그인을 설치합니다:
+
+```bash
+codex plugin marketplace add samton-inc/samton-plugins
+codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
+```
+
+기존 설치를 최신 marketplace 구조와 버전으로 갱신하려면 다음을 실행합니다:
+
+```bash
+codex plugin marketplace upgrade samton-plugins
+codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
+```
+
+설치 또는 갱신 후에는 새 Codex 작업에서 플러그인을 사용하세요.
+
+### 방법 3: skills.sh로 개별 스킬만 설치
 
 Claude Code가 아닌 다른 에이전트 환경(Codex, Cursor, 독립 AI 워크플로우 등)에서 **스킬 단위**로만 설치하고 싶다면 [skills.sh](https://skills.sh/) CLI를 사용할 수 있습니다:
 
@@ -67,7 +85,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 각 플러그인의 스킬 경로는 `plugins/<plugin-name>/skills/<skill-name>/` 패턴을 따릅니다. 플러그인 내부 디렉토리 구조는 [여기](./plugins)에서 확인할 수 있습니다.
 
-> **주의**: skills.sh 설치는 플러그인의 **스킬만** 가져오므로, 플러그인이 정의하는 hooks, agents, MCP 서버, commands 등은 포함되지 않습니다. 전체 기능이 필요하다면 방법 1을 사용하세요.
+> **주의**: skills.sh 설치는 플러그인의 **스킬만** 가져오므로, 플러그인이 정의하는 hooks, agents, MCP 서버, commands 등은 포함되지 않습니다. 전체 기능이 필요하다면 Claude Code는 방법 1, Codex는 방법 2를 사용하세요.
 
 ## 외부 의존성
 
@@ -85,7 +103,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 ## 기여 / 문의
 
-Samton 팀 공용 저장소입니다. 팀원은 자신의 플러그인을 `plugins/<name>/` 디렉토리로 추가하고 `.claude-plugin/marketplace.json`에 엔트리를 등록하면 다른 팀원들이 바로 설치해서 쓸 수 있습니다. 외부 사용자의 이슈·PR도 환영합니다.
+Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하고 `.agents/plugins/marketplace.json`에 등록합니다. ChatGPT Work 전용 플러그인은 `chatgpt-work/` 아래의 독립 marketplace를 사용합니다. 외부 사용자의 이슈·PR도 환영합니다.
 
 - 이슈: https://github.com/samton-inc/samton-plugins/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>
@@ -97,4 +115,5 @@ Samton 팀 공용 저장소입니다. 팀원은 자신의 플러그인을 `plugi
 ## 참고
 
 - [Claude Code 플러그인 공식 문서](https://docs.claude.com/en/docs/claude-code/plugins)
+- [OpenAI Codex 플러그인 공식 문서](https://developers.openai.com/codex/plugins/build)
 - [skills.sh — Vercel Labs](https://skills.sh/)

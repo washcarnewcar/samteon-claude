@@ -5,7 +5,7 @@
     "email": "solstice@samton.co.kr"
   },
   "metadata": {
-    "description": "Samton 팀 공용 플러그인 마켓플레이스 (Claude Code · Codex · ChatGPT work)"
+    "description": "Samton 팀 공용 Claude 플러그인 마켓플레이스"
   },
   "plugins": [
     {
@@ -115,18 +115,6 @@
       },
       "license": "MIT",
       "category": "utility"
-    },
-    {
-      "name": "chatgpt-codex-self-improving-skills",
-      "source": "./plugins/chatgpt-codex-self-improving-skills",
-      "description": "Codex hook + MCP 기반 자기개선 루프. 턴 리뷰, 스킬 telemetry, backup, pin, archive, dry-run curator를 제공",
-      "version": "0.3.0",
-      "author": {
-        "name": "Samton",
-        "email": "solstice@samton.co.kr"
-      },
-      "license": "MIT",
-      "category": "development"
     },
     {
       "name": "claude-code-self-improving-skills",

@@ -8,7 +8,7 @@
       "name": "chatgpt-codex-self-improving-skills",
       "source": {
         "source": "local",
-        "path": "."
+        "path": "./plugins/chatgpt-codex-self-improving-skills"
       },
       "policy": {
         "installation": "AVAILABLE",

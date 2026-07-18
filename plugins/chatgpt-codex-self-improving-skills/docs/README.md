@@ -36,6 +36,24 @@ This plugin implements a Hermes-inspired learning loop for Codex:
   machines. Every curate run persists a report under the data dir's
   `logs/curator/<utc>/`.
 
+## Installation
+
+Add the repository's Codex marketplace and install the plugin:
+
+```bash
+codex plugin marketplace add samton-inc/samton-plugins
+codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
+```
+
+For an existing installation, refresh the marketplace and reinstall the plugin:
+
+```bash
+codex plugin marketplace upgrade samton-plugins
+codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
+```
+
+Start a new Codex task after installing or upgrading so the new plugin package is loaded.
+
 The default Stop hook is conservative. It records review signals but only
 auto-continues when enabled with:
 
