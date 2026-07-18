@@ -36,11 +36,21 @@ ChatGPT Work에서 완료된 작업을 검토해 재사용 가능한 교훈만 �
 
 ## 데스크톱에서 웹으로 배포
 
-1. ChatGPT 데스크톱 Work에서 이 저장소의 `chatgpt-work/` 경로에 있는 `samton-chatgpt` marketplace를 추가하고 `chatgpt-work-self-improving-skills`를 설치합니다.
-2. 새 Work 대화에서 `@` 목록에 플러그인 또는 bundled skill이 나타나는지 확인합니다.
-3. 데스크톱의 `Created by you`에서 workspace에 공유합니다.
-4. ChatGPT 웹의 `Shared with you`에서 설치하고 새 대화를 시작합니다.
-5. 데스크톱 앱을 완전히 종료한 상태에서 웹의 명시 호출, 자연어 호출, 민감정보 거절 사례를 확인합니다.
+1. 저장소의 루트 marketplace를 처음 등록하거나 기존 등록을 갱신합니다. 상황에 맞는 명령 하나를 실행하세요.
+
+   ```bash
+   # 최초 등록
+   codex plugin marketplace add samton-inc/samton-plugins
+
+   # 이미 등록된 marketplace 갱신
+   codex plugin marketplace upgrade samton-plugins
+   ```
+
+2. ChatGPT 데스크톱 앱을 재시작하고 Work 모드의 Plugins에서 `Samton Plugins` → `chatgpt-work-self-improving-skills`를 설치합니다. Work 전용 엔트리는 `products: ["CHATGPT"]`로 제한되어 Codex CLI의 `plugin add`로는 설치할 수 없습니다.
+3. 새 Work 대화에서 `@` 목록에 플러그인 또는 bundled skill이 나타나는지 확인합니다.
+4. 데스크톱의 `Created by you`에서 workspace에 공유합니다.
+5. ChatGPT 웹의 `Shared with you`에서 설치하고 새 대화를 시작합니다.
+6. 데스크톱 앱을 완전히 종료한 상태에서 웹의 명시 호출, 자연어 호출, 민감정보 거절 사례를 확인합니다.
 
 공유와 웹 설치는 workspace 또는 계정 상태를 변경하므로 실제 검증 시 사용자의 확인을 받은 뒤 진행합니다.
 

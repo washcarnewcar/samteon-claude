@@ -1,6 +1,6 @@
 # samton-plugins
 
-Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 `.claude-plugin/marketplace.json`, Codex 플러그인은 `.agents/plugins/marketplace.json`을 통해 각각 배포되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. ChatGPT Work 전용 플러그인은 [chatgpt-work/](./chatgpt-work) 아래의 별도 marketplace(`samton-chatgpt`)로 배포됩니다.
+Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT Work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 `.claude-plugin/marketplace.json`, Codex와 ChatGPT Work 플러그인은 루트 `.agents/plugins/marketplace.json`을 통해 각각 배포되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. Work 전용 플러그인의 본체는 [chatgpt-work/](./chatgpt-work) 아래에 둡니다.
 
 ## 수록 플러그인
 
@@ -10,6 +10,7 @@ Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT w
 | **claude-code-self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
 | **claude-cowork-self-improving-skills** | development | Cowork(클라우드 컨테이너) 전용 자기개선 루프 — claude.ai '스킬 저장' 영속화, 콜드 컨테이너 race 회피 |
 | **chatgpt-codex-self-improving-skills** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
+| **chatgpt-work-self-improving-skills** | productivity | ChatGPT Work 대화에서 승인 기반으로 재사용 가능한 개선 지침·스킬 후보를 생성 |
 | **recap** | development | 방금 끝낸 작업을 '이전 구조→문제→수정→영향받은 파일→검증' 5단 회고로 채팅에 정리 (파일 저장·커밋 없이 출력만) |
 | **git** | git | Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지 |
 | **ascii-diagram** | document | 한글 폭(2칸) 보정 ASCII 박스 다이어그램·ERD 텍스트 생성 (이미지 변환 없이 코드블록 전달) |
@@ -50,14 +51,16 @@ Claude Code 내에서 마켓플레이스를 추가하면 모든 플러그인을 
 
 자동 업데이트는 `extraKnownMarketplaces` 설정의 `autoUpdate: true`로 활성화됩니다.
 
-### 방법 2: Codex 공식 플러그인 marketplace
+### 방법 2: Codex · ChatGPT Work 공식 플러그인 marketplace
 
-Codex marketplace를 추가하고 자기개선 플러그인을 설치합니다:
+루트 marketplace를 추가하고 Codex 전용 자기개선 플러그인을 설치합니다:
 
 ```bash
 codex plugin marketplace add samton-inc/samton-plugins
 codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
 ```
+
+ChatGPT Work 전용 플러그인은 `products: ["CHATGPT"]`로 제한되어 Codex CLI에서 설치할 수 없습니다. ChatGPT 데스크톱 앱을 재시작한 뒤 Work 모드의 Plugins에서 `Samton Plugins` → `chatgpt-work-self-improving-skills`를 설치하세요.
 
 기존 설치를 최신 marketplace 구조와 버전으로 갱신하려면 다음을 실행합니다:
 
@@ -66,7 +69,7 @@ codex plugin marketplace upgrade samton-plugins
 codex plugin add chatgpt-codex-self-improving-skills@samton-plugins
 ```
 
-설치 또는 갱신 후에는 새 Codex 작업에서 플러그인을 사용하세요.
+갱신 후 ChatGPT 데스크톱 앱을 재시작하세요. Codex 전용 플러그인은 Codex에서, Work 전용 플러그인은 Work 모드의 Plugins에서 `Samton Plugins`를 선택해 설치·사용할 수 있습니다.
 
 ### 방법 3: skills.sh로 개별 스킬만 설치
 
@@ -85,7 +88,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 각 플러그인의 스킬 경로는 `plugins/<plugin-name>/skills/<skill-name>/` 패턴을 따릅니다. 플러그인 내부 디렉토리 구조는 [여기](./plugins)에서 확인할 수 있습니다.
 
-> **주의**: skills.sh 설치는 플러그인의 **스킬만** 가져오므로, 플러그인이 정의하는 hooks, agents, MCP 서버, commands 등은 포함되지 않습니다. 전체 기능이 필요하다면 Claude Code는 방법 1, Codex는 방법 2를 사용하세요.
+> **주의**: skills.sh 설치는 플러그인의 **스킬만** 가져오므로, 플러그인이 정의하는 hooks, agents, MCP 서버, commands 등은 포함되지 않습니다. 전체 기능이 필요하다면 Claude Code는 방법 1, Codex와 ChatGPT Work는 방법 2를 사용하세요.
 
 ## 외부 의존성
 
@@ -103,7 +106,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 ## 기여 / 문의
 
-Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하고 `.agents/plugins/marketplace.json`에 등록합니다. ChatGPT Work 전용 플러그인은 `chatgpt-work/` 아래의 독립 marketplace를 사용합니다. 외부 사용자의 이슈·PR도 환영합니다.
+Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`, ChatGPT Work 플러그인은 `chatgpt-work/plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하며 둘 다 루트 `.agents/plugins/marketplace.json`에 등록합니다. `policy.products`로 Codex와 ChatGPT 표면을 구분합니다. 외부 사용자의 이슈·PR도 환영합니다.
 
 - 이슈: https://github.com/samton-inc/samton-plugins/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>
