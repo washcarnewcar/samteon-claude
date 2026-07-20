@@ -19,6 +19,11 @@
   ~/.codex-self-improvement/     -> ~/.self-improving-skills/ (디렉토리 이동)
   codex 증류 스킬 provenance     codex-self-improvement -> self-improving-skills
 
+리네임 외에, v0.12.0 의 팀 스킬 공유(TEAM SHARE) 기능 제거로 orphan 된 상태도
+전환한다: skill_usage.json 의 created_by:"team" 레코드를 "agent" 로 재작성하고
+(일반 스킬 라이프사이클 편입), team_sync.json 등 inert 산출물은 삭제하지 않고
+안내만 한다.
+
 기본은 dry-run(보고만). --apply 로 실제 적용하며, 수정 대상 파일은 먼저
 <파일>.bak-migration-<UTC타임스탬프> 로 백업한다. 적용 후 재실행은 no-op(멱등).
 
@@ -846,6 +851,37 @@ def migrate_codex_state(report: Report):
                 _backup_and_write(f, new_text, report)
 
 
+def sunset_team_share(report: Report):
+    """v0.12.0 에서 팀 스킬 공유(TEAM SHARE: /share-skill, /sync-team-skills)가
+    제거되었다. 팀 소유권 개념이 사라졌으므로 skill_usage.json 의
+    created_by:"team" 레코드를 "agent" 로 재작성해 일반(증류) 스킬
+    라이프사이클(큐레이션 대상)로 편입한다. team_sync.json 등 나머지 산출물은
+    이제 읽는 코드가 없는 inert 파일 — 사용자 데이터라 삭제하지 않고 안내만."""
+    state = Path.home() / ".claude" / "self-improve"
+    usage = state / "skill_usage.json"
+    if usage.is_file():
+        try:
+            data = json.loads(usage.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = None
+        if isinstance(data, dict):
+            hit = sorted(n for n, rec in data.items()
+                         if isinstance(rec, dict) and rec.get("created_by") == "team")
+            if hit:
+                for n in hit:
+                    data[n]["created_by"] = "agent"
+                report.change(usage,
+                              "created_by:team 레코드 {0}건({1})을 agent 로 전환 "
+                              "(팀 공유 기능 제거)".format(len(hit), ", ".join(hit)))
+                _backup_and_write(
+                    usage, json.dumps(data, ensure_ascii=False, indent=2) + "\n", report)
+    for name in ("team_sync.json", "team_config.json", "team_quarantine"):
+        p = state / name
+        if p.exists():
+            report.warn("{0} 은 팀 공유 기능 제거(v0.12.0)로 더 이상 사용되지 "
+                        "않습니다 — 수동으로 삭제해도 안전합니다.".format(p))
+
+
 def check_marketplace_registration(report: Report):
     """재등록이 필요한지 점검만 한다 — known/installed 레지스트리는 CLI 가 관리하므로
     직접 수정하지 않고, remove/add 재등록을 안내한다."""
@@ -881,6 +917,7 @@ def run(apply: bool) -> Report:
         # — 설정 마이그레이션이 보류되면 상태 이동·provenance 정리도 함께 보류.
         report.warn("codex config.toml 마이그레이션이 보류되어 상태 디렉토리 이동과 "
                     "provenance 정리도 함께 보류합니다 (설정·상태 불일치 방지).")
+    sunset_team_share(report)
     check_marketplace_registration(report)
     return report
 

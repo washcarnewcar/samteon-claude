@@ -1239,3 +1239,61 @@ def test_main_exit_code_and_output(home, capsys):
     assert migrate_local.main([]) == 0
     out = capsys.readouterr().out
     assert "dry-run" in out and "--apply" in out
+
+
+# --- team-share sunset (v0.12.0 기능 제거) -----------------------------------
+
+def _write_usage(home, data):
+    path = home / ".claude" / "self-improve" / "skill_usage.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+USAGE_WITH_TEAM = {
+    "_meta": {"offsets": {"s1": {"o": 3, "t": "2026-07-01T00:00:00+00:00"}}},
+    "team-born": {"use_count": 2, "created_by": "team", "state": "active"},
+    "my-own": {"use_count": 5, "created_by": "agent", "state": "active"},
+    "hand-made": {"use_count": 1, "created_by": "user", "state": "active"},
+}
+
+
+def test_team_sunset_rewrites_created_by(home):
+    path = _write_usage(home, USAGE_WITH_TEAM)
+    migrate_local.run(apply=True)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["team-born"]["created_by"] == "agent"
+    assert data["team-born"]["use_count"] == 2  # 나머지 필드는 불변
+    assert data["my-own"]["created_by"] == "agent"
+    assert data["hand-made"]["created_by"] == "user"
+    assert data["_meta"] == USAGE_WITH_TEAM["_meta"]
+    assert list(path.parent.glob("skill_usage.json.bak-migration-*"))
+
+
+def test_team_sunset_dry_run_no_write(home):
+    path = _write_usage(home, USAGE_WITH_TEAM)
+    before = path.read_text(encoding="utf-8")
+    report = migrate_local.run(apply=False)
+    assert any("created_by:team" in desc for _p, desc in report.changes)
+    assert path.read_text(encoding="utf-8") == before
+    assert not list(path.parent.glob("*.bak-migration-*"))
+
+
+def test_team_sunset_idempotent(home):
+    _write_usage(home, USAGE_WITH_TEAM)
+    assert migrate_local.run(apply=True).changes
+    assert migrate_local.run(apply=True).changes == []
+
+
+def test_team_leftovers_warned_not_deleted(home):
+    state = home / ".claude" / "self-improve"
+    state.mkdir(parents=True)
+    (state / "team_sync.json").write_text("{}", encoding="utf-8")
+    (state / "team_config.json").write_text("{}", encoding="utf-8")
+    (state / "team_quarantine").mkdir()
+    report = migrate_local.run(apply=True)
+    assert report.changes == []  # 안내만, 재작성 대상 아님
+    warned = "\n".join(report.warnings)
+    for name in ("team_sync.json", "team_config.json", "team_quarantine"):
+        assert name in warned
+        assert (state / name).exists()  # 절대 삭제하지 않는다

@@ -7,7 +7,7 @@ Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT W
 | 이름 | 카테고리 | 설명 |
 |---|---|---|
 | **feature** | development | 기능 구현 워크플로우 (테스트 작성 + 코드 리뷰 품질 게이트 포함) |
-| **claude-code-self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) + 팀 스킬 공유(origin-hash 동기화) |
+| **claude-code-self-improving-skills** | development | 복잡한 작업 후 재사용 기법을 SKILL.md로 자동 증류·자기개선 (Hermes Agent 이식) |
 | **claude-cowork-self-improving-skills** | development | Cowork(클라우드 컨테이너) 전용 자기개선 루프 — claude.ai '스킬 저장' 영속화, 콜드 컨테이너 race 회피 |
 | **chatgpt-codex-self-improving-skills** | development | Codex hook + MCP 기반 자기개선 루프 (턴 리뷰, 스킬 telemetry, dry-run curator) |
 | **chatgpt-work-self-improving-skills** | productivity | ChatGPT Work 대화에서 승인 기반으로 재사용 가능한 개선 지침·스킬 후보를 생성 |
@@ -96,7 +96,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 | 플러그인 | 필요 의존성 |
 |---|---|
-| `claude-code-self-improving-skills` | Python 3; 팀 스킬 공유(/share-skill, /sync-team-skills) 사용 시 GitHub CLI(`gh`) 인증 |
+| `claude-code-self-improving-skills` | Python 3 |
 | `chatgpt-codex-self-improving-skills` | OpenAI Codex CLI |
 | `tmap` | SK Open API AppKey (https://openapi.sk.com/) |
 | `gemini-image-reader` | Google Gemini API 키 또는 CLI |
