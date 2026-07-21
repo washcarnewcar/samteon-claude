@@ -504,6 +504,37 @@ time.sleep(30)
     assert review_queue._pid_alive(child_pid) is False
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows stdin delivery contract")
+def test_windows_large_prompt_cannot_block_command_deadline(tmp_path):
+    pid_path = tmp_path / "blocked-stdin.pid"
+    fake = _fake_codex(
+        tmp_path,
+        """import os, time
+with open(os.environ['FAKE_PID_PATH'], 'w', encoding='utf-8') as handle:
+    handle.write(str(os.getpid()))
+time.sleep(30)
+""",
+    )
+    started = time.monotonic()
+
+    result = worker._invoke_command(
+        [sys.executable, str(fake)],
+        prompt="x" * 2_000_000,
+        cwd=tmp_path,
+        env=dict(os.environ, FAKE_PID_PATH=str(pid_path)),
+        deadline=time.monotonic() + 3,
+        heartbeat=lambda: True,
+    )
+
+    assert result.timed_out is True
+    assert time.monotonic() - started < 15
+    child_pid = int(pid_path.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and review_queue._pid_alive(child_pid):
+        time.sleep(0.05)
+    assert review_queue._pid_alive(child_pid) is False
+
+
 @pytest.mark.parametrize("heartbeat_mode", ["false", "raise"])
 def test_heartbeat_loss_terminates_codex_tree(tmp_path, monkeypatch, heartbeat_mode):
     pid_path = tmp_path / f"heartbeat-{heartbeat_mode}.pid"

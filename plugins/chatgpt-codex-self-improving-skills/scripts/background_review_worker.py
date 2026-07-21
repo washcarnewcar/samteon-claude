@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections import deque
@@ -100,6 +101,42 @@ class CommandResult:
     stdout: str
     stderr: str
     timed_out: bool = False
+
+
+class _WindowsStdinWriter:
+    """Deliver a prompt without letting Windows ``communicate`` block forever."""
+
+    def __init__(self, stream: Any, prompt: str) -> None:
+        self._stream = stream
+        self._prompt = prompt
+        self.delivered = False
+        self._thread = threading.Thread(
+            target=self._run,
+            name="codex-background-review-stdin",
+            daemon=True,
+        )
+
+    def _run(self) -> None:
+        try:
+            written = self._stream.write(self._prompt)
+            self._stream.flush()
+            self.delivered = written == len(self._prompt)
+        except (BrokenPipeError, OSError, ValueError):
+            self.delivered = False
+        finally:
+            try:
+                self._stream.close()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self, timeout: float) -> None:
+        self._thread.join(timeout=max(0.0, timeout))
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
 
 
 @dataclass
@@ -903,7 +940,7 @@ def _terminate_process(
     try:
         if windows_job is not None:
             windows_job.close()
-        else:
+        elif process.poll() is None:
             _taskkill_tree(process.pid)
             if process.poll() is None:
                 process.kill()
@@ -912,7 +949,7 @@ def _terminate_process(
         try:
             if os.name != "nt":
                 os.killpg(process.pid, 9)
-            else:
+            elif process.poll() is None:
                 _taskkill_tree(process.pid)
                 process.kill()
         except Exception:
@@ -989,19 +1026,53 @@ def _invoke_command(
             _terminate_process(process, windows_job)
             return CommandResult(126, "", "Windows Job Object handshake failed")
 
+    stdin_writer: Optional[_WindowsStdinWriter] = None
     input_value: Optional[str] = prompt
+    outcome: Optional[CommandResult] = None
+    tree_cleaned = False
     try:
-        while True:
+        if os.name == "nt":
+            # CPython's Windows communicate() can block while synchronously
+            # writing stdin, before its timeout machinery gets a chance to run.
+            # Give one daemon thread sole ownership of the pipe and let the main
+            # thread poll only stdout/stderr and the process deadline.
+            stdin_stream = process.stdin
+            if stdin_stream is None:
+                _terminate_process(process, windows_job)
+                tree_cleaned = True
+                outcome = CommandResult(126, "", "worker stdin is unavailable")
+            else:
+                candidate_writer = _WindowsStdinWriter(stdin_stream, prompt)
+                process.stdin = None
+                try:
+                    candidate_writer.start()
+                except (OSError, RuntimeError):
+                    try:
+                        stdin_stream.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
+                    _terminate_process(process, windows_job)
+                    tree_cleaned = True
+                    outcome = CommandResult(126, "", "worker stdin delivery failed")
+                else:
+                    stdin_writer = candidate_writer
+                    input_value = None
+
+        while outcome is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 _terminate_process(process, windows_job)
-                return CommandResult(process.returncode or 124, "", "", timed_out=True)
+                tree_cleaned = True
+                outcome = CommandResult(
+                    process.returncode or 124, "", "", timed_out=True
+                )
+                break
             try:
                 poll_seconds = 1.0 if os.name == "nt" else HEARTBEAT_INTERVAL_SECONDS
                 stdout, stderr = process.communicate(
                     input=input_value, timeout=min(poll_seconds, remaining)
                 )
-                return CommandResult(process.returncode or 0, stdout, stderr)
+                outcome = CommandResult(process.returncode or 0, stdout, stderr)
             except subprocess.TimeoutExpired:
                 input_value = None
                 if os.name == "nt" and process.poll() is not None:
@@ -1012,36 +1083,63 @@ def _invoke_command(
                     if windows_job is not None:
                         windows_job.close()
                         windows_job = None
-                    else:
-                        _taskkill_tree(process.pid)
+                        tree_cleaned = True
                     try:
                         stdout, stderr = process.communicate(timeout=5)
                     except subprocess.TimeoutExpired:
-                        _terminate_process(process, windows_job)
-                        return CommandResult(125, "", "worker pipe cleanup failed")
-                    return CommandResult(process.returncode or 0, stdout, stderr)
+                        if process.poll() is None:
+                            _terminate_process(process, windows_job)
+                            tree_cleaned = True
+                        outcome = CommandResult(
+                            125, "", "worker pipe cleanup failed"
+                        )
+                    else:
+                        outcome = CommandResult(process.returncode or 0, stdout, stderr)
+                    continue
                 try:
                     lease_alive = heartbeat()
                 except Exception:
                     lease_alive = False
                 if not lease_alive:
                     _terminate_process(process, windows_job)
-                    return CommandResult(process.returncode or 125, "", "worker lease lost")
+                    tree_cleaned = True
+                    outcome = CommandResult(
+                        process.returncode or 125, "", "worker lease lost"
+                    )
     finally:
-        if windows_job is not None:
+        if os.name == "nt" and not tree_cleaned and windows_job is not None:
             # Closing after a normal Codex exit also removes any MCP or helper
             # descendants that outlived their parent.
             windows_job.close()
-        elif os.name == "nt":
-            _taskkill_tree(process.pid)
-        else:
+            tree_cleaned = True
+        elif os.name == "nt" and not tree_cleaned and process.poll() is None:
+            _terminate_process(process, None)
+            tree_cleaned = True
+        elif os.name != "nt" and not tree_cleaned:
             _terminate_process(process)
+            tree_cleaned = True
         if handshake_path is not None:
             try:
                 if handshake_path.exists() and not handshake_path.is_symlink():
                     handshake_path.unlink()
             except OSError:
                 pass
+        if stdin_writer is not None:
+            stdin_writer.join(5)
+
+    if stdin_writer is not None:
+        if stdin_writer.is_alive():
+            return CommandResult(125, "", "worker pipe cleanup failed")
+        if (
+            outcome is not None
+            and outcome.returncode == 0
+            and not outcome.timed_out
+            and not stdin_writer.delivered
+        ):
+            return CommandResult(125, "", "worker stdin delivery failed")
+    if outcome is None:
+        return CommandResult(125, "", "worker command ended without a result")
+    return outcome
 
 
 def _load_result(result_path: Path, stdout: str) -> Dict[str, Any]:
