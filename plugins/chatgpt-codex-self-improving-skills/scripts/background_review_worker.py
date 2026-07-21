@@ -642,6 +642,20 @@ def build_codex_command(
         "mcp_servers.self-improving-skills.args=" + json.dumps([str(mcp_script)]),
         "-c",
         "mcp_servers.self-improving-skills.cwd=" + json.dumps(str(root)),
+        "-c",
+        "mcp_servers.self-improving-skills.default_tools_approval_mode=\"approve\"",
+        "-c",
+        "mcp_servers.self-improving-skills.enabled_tools="
+        + json.dumps(
+            [
+                "codex_skill_list",
+                "codex_skill_view",
+                "codex_skill_create",
+                "codex_skill_patch",
+                "codex_skill_write_file",
+                "codex_skill_scan",
+            ]
+        ),
         "--color",
         "never",
         "--output-schema",

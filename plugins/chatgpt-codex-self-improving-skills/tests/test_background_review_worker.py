@@ -295,6 +295,23 @@ print(json.dumps(result))
     assert json.loads(mcp_args.split("=", 1)[1]) == [
         str(Path(worker.__file__).resolve().parent / "skill_manager_mcp.py")
     ]
+    assert (
+        'mcp_servers.self-improving-skills.default_tools_approval_mode="approve"'
+        in args
+    )
+    enabled_tools = next(
+        value
+        for value in args
+        if value.startswith("mcp_servers.self-improving-skills.enabled_tools=")
+    )
+    assert json.loads(enabled_tools.split("=", 1)[1]) == [
+        "codex_skill_list",
+        "codex_skill_view",
+        "codex_skill_create",
+        "codex_skill_patch",
+        "codex_skill_write_file",
+        "codex_skill_scan",
+    ]
     assert any(
         value.startswith("mcp_servers.self-improving-skills.env.CODEX_SELF_IMPROVE_WRITE_ROOTS=")
         for value in args

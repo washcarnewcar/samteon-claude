@@ -92,7 +92,11 @@ The child uses `--ignore-user-config` and `--ignore-rules`, clears ambient MCP
 configuration, disables plugins and interactive or shell-capable built-in
 tools, and registers only this plugin's skill-manager MCP. It copies only the
 user's default model and reasoning effort from `config.toml`; unrelated MCP,
-tool, plugin, and execution-policy settings are not inherited.
+tool, plugin, and execution-policy settings are not inherited. Because
+`codex exec` is non-interactive, that one isolated manager is explicitly
+auto-approved with an allowlist limited to list, view, create, patch,
+support-file write, and scan operations; no other MCP server or built-in
+mutation tool is enabled.
 
 Each background job starts a separate Codex run and therefore consumes
 additional tokens and account usage. A command failure is retried at most
