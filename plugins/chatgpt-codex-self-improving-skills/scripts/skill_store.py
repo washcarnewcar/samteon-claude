@@ -46,6 +46,39 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def user_home() -> Path:
+    """Honor hook-provided homes consistently on POSIX and Windows."""
+    for name in ("HOME", "USERPROFILE"):
+        configured = os.environ.get(name)
+        if not configured:
+            continue
+        candidate = Path(configured)
+        if candidate.is_absolute():
+            return candidate.resolve()
+    try:
+        candidate = Path.home()
+        if candidate.is_absolute():
+            return candidate.resolve()
+    except (OSError, RuntimeError):
+        pass
+    if os.name != "nt":
+        try:
+            import pwd
+
+            candidate = Path(pwd.getpwuid(os.getuid()).pw_dir)
+            if candidate.is_absolute():
+                return candidate.resolve()
+        except (ImportError, KeyError, OSError, RuntimeError):
+            pass
+    else:
+        drive = os.environ.get("HOMEDRIVE") or ""
+        tail = os.environ.get("HOMEPATH") or ""
+        candidate = Path(f"{drive}{tail}")
+        if candidate.is_absolute():
+            return candidate.resolve()
+    raise SkillStoreError("No absolute user home directory is available.")
+
+
 def plugin_root() -> Path:
     env = os.environ.get("PLUGIN_ROOT")
     if env:
@@ -94,7 +127,7 @@ def resolve_data_dir(*, create: bool = True) -> Tuple[Path, str]:
             path = installed.resolve()
             source = "codex_plugin_cache"
         else:
-            path = (Path.home() / ".self-improving-skills").resolve()
+            path = user_home() / ".self-improving-skills"
             source = "legacy_home"
     if create:
         path.mkdir(parents=True, exist_ok=True)
@@ -220,8 +253,8 @@ def default_skill_roots(cwd: Optional[Path] = None) -> List[Path]:
         ):
             if repo_skills.exists():
                 roots.append(repo_skills)
-        roots.append(Path.home() / ".agents" / "skills")
-        codex_skills = Path.home() / ".codex" / "skills"
+        roots.append(user_home() / ".agents" / "skills")
+        codex_skills = user_home() / ".codex" / "skills"
         if codex_skills.exists():
             roots.append(codex_skills)
 
@@ -280,7 +313,7 @@ def _assert_skill_write_allowed(path: Path) -> Path:
 
 def default_create_root(*, create: bool = True) -> Path:
     env = os.environ.get("CODEX_SELF_IMPROVE_CREATE_ROOT")
-    root = Path(env).expanduser() if env else Path.home() / ".codex" / "skills"
+    root = Path(env).expanduser() if env else user_home() / ".codex" / "skills"
     if create:
         root.mkdir(parents=True, exist_ok=True)
     return root.resolve()

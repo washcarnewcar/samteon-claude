@@ -7,6 +7,7 @@ import stat
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -89,6 +90,30 @@ def test_source_checkout_keeps_legacy_home_fallback(tmp_path, monkeypatch):
     assert path == (tmp_path / ".self-improving-skills").resolve()
     assert source == "legacy_home"
     assert not path.exists()
+
+
+def test_user_home_skips_relative_home_for_absolute_userprofile(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", "relative-home")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    import skill_store
+
+    store = importlib.reload(skill_store)
+    assert store.user_home() == tmp_path.resolve()
+
+
+def test_user_home_never_resolves_relative_path_against_cwd(monkeypatch):
+    monkeypatch.setenv("HOME", "relative-home")
+    monkeypatch.setenv("USERPROFILE", "relative-profile")
+    monkeypatch.setattr(Path, "home", classmethod(lambda _cls: Path("relative-path-home")))
+    import skill_store
+
+    store = importlib.reload(skill_store)
+    try:
+        resolved = store.user_home()
+    except store.SkillStoreError:
+        return
+    assert resolved.is_absolute()
+    assert resolved != (Path.cwd() / "relative-path-home").resolve()
 
 
 def test_review_mode_defaults_background_and_mode_wins(tmp_path, monkeypatch):

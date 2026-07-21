@@ -60,6 +60,38 @@ class _QueueConnection(sqlite3.Connection):
                 _secure_sqlite_paths(self.queue_path)
 
 
+def _fallback_user_home() -> Path:
+    for name in ("HOME", "USERPROFILE"):
+        configured = os.environ.get(name)
+        if not configured:
+            continue
+        candidate = Path(configured)
+        if candidate.is_absolute():
+            return candidate.resolve()
+    try:
+        candidate = Path.home()
+        if candidate.is_absolute():
+            return candidate.resolve()
+    except (OSError, RuntimeError):
+        pass
+    if os.name != "nt":
+        try:
+            import pwd
+
+            candidate = Path(pwd.getpwuid(os.getuid()).pw_dir)
+            if candidate.is_absolute():
+                return candidate.resolve()
+        except (ImportError, KeyError, OSError, RuntimeError):
+            pass
+    else:
+        drive = os.environ.get("HOMEDRIVE") or ""
+        tail = os.environ.get("HOMEPATH") or ""
+        candidate = Path(f"{drive}{tail}")
+        if candidate.is_absolute():
+            return candidate.resolve()
+    raise RuntimeError("No absolute user home directory is available")
+
+
 def default_queue_path() -> Path:
     """Resolve the shared plugin-data queue without duplicating data rules."""
     try:
@@ -68,7 +100,10 @@ def default_queue_path() -> Path:
         root = skill_store.data_dir()
     except Exception:
         configured = os.environ.get("PLUGIN_DATA")
-        root = Path(configured).expanduser() if configured else Path.home() / ".self-improving-skills"
+        if configured:
+            root = Path(configured).expanduser()
+        else:
+            root = _fallback_user_home() / ".self-improving-skills"
     return root / "review-jobs.sqlite3"
 
 

@@ -45,6 +45,14 @@ def _result(status="nothing_to_save"):
     return {"status": status, "skills": [], "candidates": [], "summary": "done"}
 
 
+def test_fallback_home_skips_relative_home_for_absolute_userprofile(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HOME", "relative-home")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    assert review_queue._fallback_user_home() == tmp_path.resolve()
+
+
 def test_enqueue_stores_coordinates_not_transcript_content(tmp_path):
     queue = review_queue.ReviewQueue(tmp_path / "jobs.sqlite3")
     created = _enqueue(queue)
