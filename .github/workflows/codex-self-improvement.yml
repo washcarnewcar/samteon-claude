@@ -15,6 +15,7 @@ on:
 
 jobs:
   test:
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -25,8 +26,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: python -m pip install pytest
-      - run: python -m pytest -q plugins/chatgpt-codex-self-improving-skills/tests
+      - run: python -m pip install pytest pytest-timeout
+      - run: python -m pytest -vv --timeout=60 plugins/chatgpt-codex-self-improving-skills/tests
       - run: python -m compileall -q plugins/chatgpt-codex-self-improving-skills/scripts
       - name: Execute Windows hook wrapper
         if: runner.os == 'Windows'
