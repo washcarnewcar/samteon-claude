@@ -878,9 +878,28 @@ def _supervise_windows_command(
             getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
             | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         )
+        standard_streams = (sys.stdin, sys.stdout, sys.stderr)
+        if any(stream is None for stream in standard_streams):
+            return 126
         try:
-            child = subprocess.Popen(list(command), creationflags=creationflags)
-        except OSError:
+            for stream in standard_streams:
+                stream.fileno()
+        except (AttributeError, OSError, ValueError):
+            return 126
+        try:
+            # Unlike POSIX fd 0/1/2, Windows standard handles are not reliably
+            # forwarded through a second Popen when close_fds is enabled.
+            # Bind the supervisor's three pipe-backed streams explicitly so
+            # Codex receives the prompt EOF and its output reaches the worker.
+            child = subprocess.Popen(
+                list(command),
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                creationflags=creationflags,
+                close_fds=True,
+            )
+        except (OSError, ValueError):
             return 127
         # Prefer a nested child Job even when the supervisor itself is already
         # protected by the outer worker Job. Closing it on leader exit removes
