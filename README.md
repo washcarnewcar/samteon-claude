@@ -96,6 +96,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 | 플러그인 | 필요 의존성 |
 |---|---|
+| `feature` | Python 3.9+ (CODEX_MODE 리뷰 ledger), OpenAI Codex CLI (선택) |
 | `claude-code-self-improving-skills` | Python 3 |
 | `chatgpt-codex-self-improving-skills` | OpenAI Codex CLI |
 | `tmap` | SK Open API AppKey (https://openapi.sk.com/) |
