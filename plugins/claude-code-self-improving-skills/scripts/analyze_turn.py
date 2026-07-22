@@ -259,6 +259,52 @@ def resolve_review_mode():
     return mode if mode in ("background", "foreground", "off") else "background"
 
 
+PREFLIGHT_TTL_SECONDS = 3600
+
+
+def _background_usable(distill_worker):
+    """Whether a queued job could actually run — checked BEFORE queueing.
+
+    Queueing on a machine where the CLI is missing, unauthenticated, or too old
+    means the turn ends silently and the failure only surfaces later, in a
+    blocked job nobody is looking at. The README promises a foreground nudge
+    instead, so the decision has to be made here.
+
+    The verdict is cached: `claude --version` plus `auth status` is two
+    subprocesses, and this runs on a Stop hook.
+    """
+    claude_bin = distill_worker.discover_claude()
+    if not claude_bin:
+        return False
+
+    cache_path = os.path.join(distill_worker.state_dir(), "preflight.json")
+    now = time.time()
+    try:
+        with open(cache_path, encoding="utf-8") as fh:
+            cached = json.load(fh)
+        if (
+            cached.get("bin") == claude_bin
+            and now - float(cached.get("at") or 0) < PREFLIGHT_TTL_SECONDS
+        ):
+            return bool(cached.get("ok"))
+    except Exception:
+        pass
+
+    try:
+        env = distill_worker.child_environment()
+        blocked, _version = distill_worker._preflight(claude_bin, env)
+        ok = blocked is None
+    except Exception:
+        ok = False
+    try:
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as fh:
+            json.dump({"bin": claude_bin, "at": now, "ok": ok}, fh)
+    except Exception:
+        pass
+    return ok
+
+
 def _enqueue_background(payload, session_id, transcript_path, rows,
                         nudge_fires, readonly_fires, core_fires):
     """Queue a detached distillation. False means "fall back to the nudge".
@@ -283,7 +329,7 @@ def _enqueue_background(payload, session_id, transcript_path, rows,
     except Exception:
         return False
 
-    if not distill_worker.discover_claude():
+    if not _background_usable(distill_worker):
         return False
 
     if nudge_fires or readonly_fires:

@@ -420,6 +420,7 @@ def deny_rules(home: Optional[str] = None) -> List[str]:
     `/C:\\Users\\me/.claude/...`, which matches nothing.
     """
     base = (home or skill_paths.user_home()).replace("\\", "/").rstrip("/")
+    state = skill_paths.state_dir().replace("\\", "/").rstrip("/")
     absolute = [
         ".claude/settings.json",
         ".claude/settings.local.json",
@@ -446,9 +447,30 @@ def deny_rules(home: Optional[str] = None) -> List[str]:
     ]
     patterns = ["/{0}/{1}".format(base, name) for name in absolute]
     patterns += ["**/.git/**", "**/.husky/**", "**/.mcp.json", "**/.pre-commit-config.yaml"]
+    # The plugin's own state directory holds the rollback baseline the guard
+    # trusts after the run. A child that could rewrite it could have its own
+    # bad bytes "restored" as if they were the original.
+    patterns.append("/{0}/**".format(state))
+
     rules: List[str] = []
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         rules.extend("{0}({1})".format(tool, pattern) for pattern in patterns)
+
+    # Reads matter too: the credential file lives in the state directory, and
+    # the child could otherwise read the token and echo it into a skill body.
+    # The token still reaches the child through its environment, which no tool
+    # can read.
+    secrets = [
+        "/{0}/**".format(state),
+        "/{0}/.claude/.credentials.json".format(base),
+        "/{0}/.ssh/**".format(base),
+        "/{0}/.aws/**".format(base),
+        "/{0}/.netrc".format(base),
+        "**/.env",
+        "**/.env.*",
+    ]
+    for tool in ("Read", "Glob", "Grep"):
+        rules.extend("{0}({1})".format(tool, pattern) for pattern in secrets)
     return rules
 
 
@@ -606,8 +628,6 @@ class _WindowsKillJob:
         self._handle = handle
 
     def assign(self, pid: int) -> bool:
-        import ctypes  # noqa: F401  (imported for the WinAPI constants below)
-
         process_set_quota = 0x0100
         process_terminate = 0x0001
         process_query_limited_information = 0x1000
@@ -828,6 +848,18 @@ def _supervise_windows_command(parent_pid: int, command: Sequence[str]) -> int:
         if child_job is not None and not assigned:
             child_job.close()
             child_job = None
+        if not assigned:
+            # Without a containment Job a supervisor crash would leave the
+            # child writing skills while the queue hands the job to a retry.
+            # Refusing is the only outcome that keeps that from happening.
+            _taskkill_tree(child.pid)
+            if child.poll() is None:
+                child.kill()
+            try:
+                child.wait(timeout=5)
+            except (subprocess.SubprocessError, OSError):
+                pass
+            return 126
 
         while True:
             returncode = child.poll()
@@ -1016,8 +1048,18 @@ def invoke_child(
         if stdin_writer is not None:
             stdin_writer.join(5)
 
-    if stdin_writer is not None and stdin_writer.is_alive():
-        return CommandResult(125, "", "child pipe cleanup failed")
+    if stdin_writer is not None:
+        if stdin_writer.is_alive():
+            return CommandResult(125, "", "child pipe cleanup failed")
+        if (
+            outcome is not None
+            and outcome.returncode == 0
+            and not outcome.timed_out
+            and not stdin_writer.delivered
+        ):
+            # The child exited cleanly but never received all of the evidence,
+            # so whatever it concluded was based on a truncated transcript.
+            return CommandResult(125, "", "prompt delivery was incomplete")
     return outcome if outcome is not None else CommandResult(
         125, "", "child ended without a result"
     )
@@ -1168,7 +1210,7 @@ def process_job(
         queue.block(job_id, owner, code="unsafe_worker_env", message=str(exc))
         return {"job_id": job_id, "status": "blocked", "reason": "unsafe_worker_env"}
 
-    blocked = _preflight(claude_bin, env)
+    blocked, cli_version_used = _preflight(claude_bin, env)
     if blocked is not None:
         code, message = blocked
         queue.block(job_id, owner, code=code, message=message)
@@ -1211,6 +1253,7 @@ def process_job(
                 evidence=evidence,
                 workspace=workspace,
                 baseline_dir=baseline_dir,
+                cli_version_used=cli_version_used,
             )
         except Exception:
             outcome = {
@@ -1280,31 +1323,34 @@ def _job_baseline(baseline_dir: Path) -> skill_guard.Snapshot:
     return snapshot
 
 
-def _preflight(claude_bin: str, env: Dict[str, str]) -> Optional[Tuple[str, str]]:
-    """(code, message) when the job cannot run, else None."""
+def _preflight(
+    claude_bin: str, env: Dict[str, str]
+) -> Tuple[Optional[Tuple[str, str]], Optional[str]]:
+    """((code, message) or None, resolved CLI version or None)."""
     if os.name != "nt" and hasattr(os, "geteuid") and os.geteuid() == 0:
         return (
             "root_refused",
             "Claude Code refuses bypassPermissions as root; run the worker as your own user",
-        )
+        ), None
     version = cli_version(claude_bin, env)
     if version is None:
-        return ("cli_not_found", "could not determine the Claude Code CLI version")
+        return ("cli_not_found", "could not determine the Claude Code CLI version"), None
+    resolved = ".".join(str(part) for part in version)
     if version < MIN_CLI_VERSION:
         return (
             "cli_too_old",
             "Claude Code {0} is older than the required {1}; below it an invalid "
             "--json-schema is accepted silently".format(
-                ".".join(str(part) for part in version),
+                resolved,
                 ".".join(str(part) for part in MIN_CLI_VERSION),
             ),
-        )
+        ), resolved
     if not authenticated(claude_bin, env):
         return (
             "authentication_required",
             "the Claude Code CLI is not signed in; run `claude setup-token` and put "
             "CLAUDE_CODE_OAUTH_TOKEN in {0}".format(worker_env_file()),
-        )
+        ), resolved
     escapes = _symlinked_skills()
     if escapes:
         # A symlinked skill directory is a write that leaves the tree: the
@@ -1315,8 +1361,8 @@ def _preflight(claude_bin: str, env: Dict[str, str]) -> Optional[Tuple[str, str]
             "symlinked_skills",
             "these skills are symbolic links, so an unattended run could write "
             "outside the skill tree: {0}".format(", ".join(escapes[:5])),
-        )
-    return None
+        ), resolved
+    return None, resolved
 
 
 def _symlinked_skills() -> List[str]:
@@ -1342,15 +1388,15 @@ def _run_job(
     evidence: Evidence,
     workspace: Path,
     baseline_dir: Path,
+    cli_version_used: Optional[str],
 ) -> Dict[str, Any]:
     job_id = int(job["id"])
     plugin_root = Path(__file__).resolve().parents[1]
     model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
     budget = os.environ.get("SIS_DISTILL_MAX_USD") or DEFAULT_MAX_USD
 
-    version = cli_version(claude_bin, env)
-    if version is not None:
-        queue.set_cli_version(job_id, owner, ".".join(str(part) for part in version))
+    if cli_version_used:
+        queue.set_cli_version(job_id, owner, cli_version_used)
 
     command = build_claude_command(
         claude_bin,
@@ -1442,6 +1488,25 @@ def _run_job(
             "status": "blocked",
             "reason": "unprotected_write",
             "unprotected": merged["unprotected"],
+        }
+
+    if merged.get("out_of_scope_writes"):
+        # A watched file changed, which means a deny rule did not hold. The
+        # watchlist exists precisely to catch that; completing the job would
+        # detect the failure and then say nothing about it.
+        queue.block(
+            job_id,
+            owner,
+            code="out_of_scope_write",
+            message="files outside the skill tree changed during the run: {0}".format(
+                ", ".join(merged["out_of_scope_writes"][:5])
+            ),
+        )
+        return {
+            "job_id": job_id,
+            "status": "blocked",
+            "reason": "out_of_scope_write",
+            "out_of_scope_writes": merged["out_of_scope_writes"],
         }
 
     updated = queue.complete(job_id, owner, merged)

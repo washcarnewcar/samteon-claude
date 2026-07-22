@@ -45,18 +45,6 @@ RETRY_DELAYS_SECONDS: Sequence[int] = (30, 300)
 RETENTION_DAYS = 30
 SQLITE_SIDECAR_SUFFIXES = ("", "-wal", "-shm", "-journal")
 
-# Errors that no amount of retrying fixes: they need a human (sign in, upgrade
-# the CLI, stop running as root) or a code change on our side.
-TERMINAL_ERROR_CODES = (
-    "authentication_required",
-    "cli_too_old",
-    "cli_not_found",
-    "root_refused",
-    "bypass_disabled",
-    "invalid_schema",
-    "budget_exhausted",
-)
-
 
 def _assert_safe_sqlite_paths(path: Path) -> None:
     for suffix in SQLITE_SIDECAR_SUFFIXES:
@@ -353,6 +341,9 @@ def validate_result(value: Any) -> Dict[str, Any]:
     unprotected = _string_list(value.get("unprotected"), field="unprotected")
     if unprotected:
         normalized["unprotected"] = unprotected
+    assets = _string_list(value.get("assets"), field="assets", limit=200)
+    if assets:
+        normalized["assets"] = assets
     return normalized
 
 
@@ -878,7 +869,9 @@ class DistillQueue:
                 """UPDATE distill_jobs SET status=?, available_at=?, completed_at=?, updated_at=?,
                    error_code=?, last_error=?, retry_delay_seconds=?, lease_owner=NULL,
                    lease_expires_at=NULL, heartbeat_at=NULL, worker_pid=NULL,
-                   worker_pid_identity=NULL
+                   worker_pid_identity=NULL,
+                   last_assistant_message=CASE WHEN ?='failed' THEN NULL
+                                               ELSE last_assistant_message END
                    WHERE id=?""",
                 (
                     status,
@@ -888,6 +881,7 @@ class DistillQueue:
                     str(code)[:128],
                     str(message)[:4000],
                     delay,
+                    status,
                     int(job_id),
                 ),
             )
@@ -968,12 +962,3 @@ class DistillQueue:
                 (cutoff,),
             )
             return int(cur.rowcount)
-
-
-def enqueue(**kwargs: Any) -> Dict[str, Any]:
-    """Convenience wrapper used by the Stop hook."""
-    return DistillQueue().enqueue(**kwargs)
-
-
-def queue_status() -> Dict[str, Any]:
-    return DistillQueue().status()

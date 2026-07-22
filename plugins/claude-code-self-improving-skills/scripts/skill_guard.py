@@ -110,9 +110,11 @@ def _walk_skill_tree(root: str):
             full = os.path.join(dirpath, name)
             if os.path.islink(full):
                 symlinks.append(full)
-            elif not name.startswith("."):
-                # A leading dot is the curator's own storage (`.archive`);
-                # a distiller never writes there.
+            else:
+                # Dot directories are walked too. `.archive` holds skills the
+                # curator can restore later, so a change there is a change to a
+                # skill the user will eventually run — excluding it would leave
+                # the one place an unattended run could edit unobserved.
                 kept.append(name)
         dirnames[:] = kept
         for filename in filenames:
@@ -265,6 +267,12 @@ def _is_pinned(name: str, previous_text: Optional[str]) -> bool:
     return False
 
 
+def _has_valid_skill(owner: str) -> bool:
+    """Whether the directory currently holds a SKILL.md that passes validation."""
+    text = _decode(_read(os.path.join(owner, "SKILL.md")))
+    return text is not None and not validate_skill._validate(text)
+
+
 def _skill_dir_is_pinned(owner: str, before: "Snapshot") -> bool:
     """Whether the skill owning a directory is pinned.
 
@@ -389,6 +397,11 @@ def verify(before: Snapshot) -> Dict[str, Any]:
             restore(path, existed=existed, reason=rejected_skills[owner])
         elif _skill_dir_is_pinned(owner, before):
             restore(path, existed=existed, reason="pinned")
+        elif not _has_valid_skill(owner):
+            # Otherwise a run could drop `foo/scripts/run.py` without ever
+            # writing `foo/SKILL.md`, leaving executable content that belongs
+            # to no skill and that nothing validated.
+            restore(path, existed=existed, reason="no_valid_owning_skill")
         else:
             assets.append(path)
 

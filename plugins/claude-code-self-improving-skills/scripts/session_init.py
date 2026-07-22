@@ -24,8 +24,12 @@ import sys
 import time
 from typing import NoReturn
 
-SKILLS_DIR = os.path.expanduser("~/.claude/skills")
-STATE_DIR = os.path.expanduser("~/.claude/self-improve")
+import skill_paths
+
+SKILLS_DIR = skill_paths.personal_skills_root()
+# Resolved through skill_paths so SIS_STATE_DIR moves ALL plugin state; a
+# hard-coded default here would leave this file behind in the real home.
+STATE_DIR = skill_paths.state_dir()
 CURATOR_STATE = os.path.join(STATE_DIR, "curator_state.json")
 # Kept out of curator_state.json: the curator seeds that file with a fresh
 # dict on first run, which would wipe whatever we stored alongside it.

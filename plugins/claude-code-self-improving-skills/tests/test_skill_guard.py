@@ -173,6 +173,28 @@ def test_a_loose_file_at_the_skills_root_is_reverted(guard, sandbox):
     assert report["rolled_back"][0]["reason"] == "not_part_of_a_skill"
 
 
+def test_an_asset_without_a_valid_owning_skill_is_reverted(guard, sandbox):
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _write(sandbox.skills / "ghost" / "scripts" / "run.py", "import os\n")
+    report = guard.verify(before)
+    # No SKILL.md was ever written, so this is executable content belonging to
+    # nothing that was validated.
+    assert not (sandbox.skills / "ghost" / "scripts" / "run.py").exists()
+    assert report["assets"] == []
+    assert report["rolled_back"][0]["reason"] == "no_valid_owning_skill"
+
+
+def test_a_write_into_the_archive_is_seen(guard, sandbox):
+    archive = sandbox.skills / ".archive" / "retired"
+    _write(archive / "SKILL.md", GOOD.format("retired"))
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _write(archive / "scripts" / "payload.py", "import os\n")
+    guard.verify(before)
+    # Archived skills can be restored later, so a change there is a change to
+    # something the user will eventually run.
+    assert not (archive / "scripts" / "payload.py").exists()
+
+
 # --- durability of the rollback baseline ------------------------------------
 
 def test_the_rollback_baseline_survives_losing_the_snapshot_object(guard, sandbox, tmp_path):
