@@ -292,7 +292,19 @@ def _background_usable(distill_worker):
 
     try:
         env = distill_worker.child_environment()
-        blocked, _version = distill_worker._preflight(claude_bin, env)
+        # hooks.json gives this hook 15 seconds in total. _run_cli defaults to
+        # 30 per command, so a stalled CLI would have Claude kill the hook
+        # before it could fall back to the foreground nudge.
+        original = distill_worker._run_cli
+
+        def _bounded(command, env, timeout=5):
+            return original(command, env, timeout=min(timeout, 5))
+
+        distill_worker._run_cli = _bounded
+        try:
+            blocked, _version = distill_worker._preflight(claude_bin, env)
+        finally:
+            distill_worker._run_cli = original
         ok = blocked is None
     except Exception:
         ok = False

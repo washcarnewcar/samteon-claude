@@ -1123,6 +1123,43 @@ def _cleanup_run_dir(run_dir: Path, *, retention_days: int = RETENTION_DAYS) -> 
             pass
 
 
+def recover_orphaned_baselines(queue: DistillQueue, run_dir: Path) -> List[str]:
+    """Undo writes left behind by a worker that died before verifying.
+
+    A baseline whose job is no longer running means the run never reached its
+    verdict — including the third-attempt case, where the queue gives up and
+    would otherwise leave an invalid or pinned skill modified forever even
+    though the original is still sitting right here.
+    """
+    recovered: List[str] = []
+    try:
+        children = sorted(run_dir.iterdir())
+    except OSError:
+        return recovered
+    for baseline in children:
+        match = re.fullmatch(r"job-(\d+)-baseline", baseline.name)
+        if not match or baseline.is_symlink() or not baseline.is_dir():
+            continue
+        job = queue.get(int(match.group(1)))
+        if job is not None and job.get("status") == "running":
+            continue  # a live attempt still owns it
+        index = baseline / BASELINE_INDEX
+        if index.is_file() and not index.is_symlink():
+            try:
+                stored = json.loads(index.read_text(encoding="utf-8"))
+                snapshot = skill_guard.Snapshot(
+                    stored["root"], stored.get("home"), str(baseline)
+                )
+                snapshot.files = dict(stored.get("files") or {})
+                snapshot.modes = {k: int(v) for k, v in (stored.get("modes") or {}).items()}
+                snapshot.unbacked = set(stored.get("unbacked") or [])
+                recovered.extend(skill_guard.revert_to(snapshot))
+            except (OSError, ValueError, KeyError):
+                pass
+        shutil.rmtree(baseline, ignore_errors=True)
+    return recovered
+
+
 def _cleanup_inactive_workspaces(queue: DistillQueue, run_dir: Path) -> None:
     """Remove crash leftovers once their queue jobs are no longer running."""
     try:
@@ -1295,6 +1332,7 @@ def _job_baseline(baseline_dir: Path) -> skill_guard.Snapshot:
             snapshot.symlinks = list(stored.get("symlinks") or [])
             snapshot.watched = dict(stored.get("watched") or {})
             snapshot.patch_counts = dict(stored.get("patch_counts") or {})
+            snapshot.modes = {k: int(v) for k, v in (stored.get("modes") or {}).items()}
             snapshot.unbacked = set(stored.get("unbacked") or [])
             return snapshot
         except (OSError, ValueError, KeyError):
@@ -1312,14 +1350,18 @@ def _job_baseline(baseline_dir: Path) -> skill_guard.Snapshot:
                     "symlinks": snapshot.symlinks,
                     "watched": snapshot.watched,
                     "patch_counts": snapshot.patch_counts,
+                    "modes": snapshot.modes,
                     "unbacked": sorted(snapshot.unbacked),
                 },
                 ensure_ascii=False,
             ),
             encoding="utf-8",
         )
-    except OSError:
-        pass
+    except OSError as exc:
+        # Without a durable index, a crash leaves the stored blobs unmappable
+        # back to their paths and recovery would take the modified tree as the
+        # original. Refusing is the only safe outcome.
+        raise SecurityBoundaryError("rollback baseline could not be persisted") from exc
     return snapshot
 
 
@@ -1415,7 +1457,11 @@ def _run_job(
     # the job settles. If this worker dies mid-run, the retry finds the same
     # baseline and can still restore the TRUE pre-run state — recapturing would
     # bake the dead run's writes in as if they had always been there.
-    before = _job_baseline(baseline_dir)
+    try:
+        before = _job_baseline(baseline_dir)
+    except SecurityBoundaryError as exc:
+        queue.block(job_id, owner, code="baseline_unavailable", message=str(exc))
+        return {"job_id": job_id, "status": "blocked", "reason": "baseline_unavailable"}
     if before.unbacked:
         # No rollback copy for some file that already exists. Running anyway
         # would mean a change there could be neither restored nor certified —
@@ -1434,10 +1480,6 @@ def _run_job(
         command, prompt=prompt, cwd=workspace, env=env, deadline=deadline, heartbeat=heartbeat
     )
     guard = skill_guard.verify(before)
-    # The baseline described the state before THIS attempt. Now that a verify
-    # has run, a retry must snapshot afresh — otherwise a user edit made during
-    # the retry backoff would be judged as the previous child's work.
-    shutil.rmtree(baseline_dir, ignore_errors=True)
 
     # Guard violations outrank whatever the child reported. A run that modified
     # a watched file and then timed out has still modified it, so checking this
@@ -1452,9 +1494,14 @@ def _run_job(
             message="{0}: {1}".format(code, ", ".join(paths[:5])),
             result=_violation_result(guard, code, paths),
         )
+        _release_baseline(baseline_dir)
         return {"job_id": job_id, "status": "blocked", "reason": code, "paths": paths}
 
     if result.returncode != 0:
+        # A failed run's partial output must not stay in the library: it was
+        # never reported, the job says "failed", and the retry would otherwise
+        # snapshot it as though it had always been there.
+        reverted = _revert_all(before)
         combined = "{0}\n{1}".format(result.stderr, result.stdout)
         if AUTHENTICATION_RE.search(combined):
             queue.block(
@@ -1463,12 +1510,17 @@ def _run_job(
                 code="authentication_required",
                 message="the Claude Code CLI session expired during the run",
             )
-            return {"job_id": job_id, "status": "blocked", "reason": "authentication_required"}
+            _release_baseline(baseline_dir)
+            return {
+                "job_id": job_id, "status": "blocked",
+                "reason": "authentication_required", "reverted": reverted,
+            }
         if "--json-schema is not a valid JSON Schema" in combined:
             # Our bug, not a transient failure: retrying cannot help.
             queue.block(
                 job_id, owner, code="invalid_schema", message="the result schema was rejected"
             )
+            _release_baseline(baseline_dir)
             return {"job_id": job_id, "status": "blocked", "reason": "invalid_schema"}
         outcome = queue.fail(
             job_id,
@@ -1481,10 +1533,12 @@ def _run_job(
                 else "claude exited with status {0}".format(result.returncode)
             ),
         )
-        return {"job_id": job_id, **outcome}
+        _release_baseline(baseline_dir)
+        return {"job_id": job_id, **outcome, "reverted": reverted}
 
     structured, error = parse_child_result(result.stdout)
     if structured is None:
+        _revert_all(before)
         if error == "budget_exhausted":
             queue.block(
                 job_id,
@@ -1492,20 +1546,25 @@ def _run_job(
                 code="budget_exhausted",
                 message="the run hit its --max-budget-usd ceiling (SIS_DISTILL_MAX_USD)",
             )
+            _release_baseline(baseline_dir)
             return {"job_id": job_id, "status": "blocked", "reason": "budget_exhausted"}
         outcome = queue.fail(job_id, owner, code="invalid_result", message=str(error))
+        _release_baseline(baseline_dir)
         return {"job_id": job_id, **outcome}
 
     if structured["status"] == "failed":
+        _revert_all(before)
         outcome = queue.fail(
             job_id, owner, code="distill_reported_failure", message="distillation returned failed"
         )
+        _release_baseline(baseline_dir)
         return {"job_id": job_id, **outcome}
 
     skill_guard.stamp_provenance(guard["installed"])
     merged = _merge_guard(structured, guard, _denials(result.stdout))
 
     updated = queue.complete(job_id, owner, merged)
+    _release_baseline(baseline_dir)
     return {
         "job_id": job_id,
         "updated": updated,
@@ -1514,6 +1573,27 @@ def _run_job(
         "installed": len(guard["installed"]),
         "rolled_back": len(guard["rolled_back"]),
     }
+
+
+def _release_baseline(baseline_dir: Path) -> None:
+    """Drop the baseline once the queue has recorded this attempt's verdict.
+
+    Deleting it any earlier would leave a window where a crash makes recovery
+    snapshot the already-modified tree as if it were the original. Keeping it
+    any longer would make a retry judge the user's own edits, made during the
+    backoff, as the previous child's work.
+    """
+    shutil.rmtree(baseline_dir, ignore_errors=True)
+
+
+def _revert_all(before: skill_guard.Snapshot) -> List[str]:
+    """Undo every skill-tree change since `before`.
+
+    Used when a run ends without a usable result: its partial output was never
+    reported, the job says it failed, and leaving the writes in place would
+    both change the library silently and give the retry a polluted baseline.
+    """
+    return skill_guard.revert_to(before)
 
 
 def _guard_violation(guard: Dict[str, Any]) -> Optional[Tuple[str, List[str]]]:
@@ -1626,6 +1706,7 @@ def run_worker(
         except SecurityBoundaryError:
             return {"started": False, "reason": "unsafe_run_dir", "processed": 0}
         queue.recover_expired_jobs()
+        recover_orphaned_baselines(queue, run_dir)
         _cleanup_inactive_workspaces(queue, run_dir)
         _cleanup_run_dir(run_dir)
         while True:

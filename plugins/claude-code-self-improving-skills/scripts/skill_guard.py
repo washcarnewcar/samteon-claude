@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 from typing import Any, Dict, List, Optional, Set
 
 import skill_paths
@@ -73,6 +74,18 @@ def watchlist(home: Optional[str] = None) -> List[str]:
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _digest_stream(path: str) -> Optional[str]:
+    """Hash a file too large to hold in memory, so it is still change-detected."""
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return None
+    return digest.hexdigest()
 
 
 def _read(path: str, *, follow: bool = False) -> Optional[bytes]:
@@ -158,6 +171,7 @@ class Snapshot:
         self.store = store
         self.files: Dict[str, str] = {}
         self.symlinks: List[str] = []
+        self.modes: Dict[str, int] = {}
         self.watched: Dict[str, Optional[str]] = {}
         self.patch_counts: Dict[str, int] = {}
         self.unbacked: Set[str] = set()
@@ -167,14 +181,34 @@ class Snapshot:
         if os.path.isdir(self.root):
             paths, self.symlinks = _walk_skill_tree(self.root)
             for path in paths:
+                try:
+                    info = os.stat(path)
+                except OSError:
+                    # Enumerated but unreadable. Recording it as unbacked keeps
+                    # verify() honest: if it is replaced later we must not treat
+                    # the replacement as a brand-new file we can simply accept.
+                    self.files[path] = "unreadable"
+                    self.unbacked.add(path)
+                    continue
+                self.modes[path] = stat.S_IMODE(info.st_mode)
+                # Check the size BEFORE reading: one multi-gigabyte reference
+                # file would otherwise exhaust the worker's memory on the way
+                # to discovering it is over the cap.
+                if info.st_size > MAX_SNAPSHOT_BYTES or total + info.st_size > MAX_SNAPSHOT_BYTES:
+                    digest = _digest_stream(path)
+                    self.files[path] = digest if digest is not None else "unreadable"
+                    self.unbacked.add(path)
+                    continue
                 data = _read(path)
                 if data is None:
+                    self.files[path] = "unreadable"
+                    self.unbacked.add(path)
                     continue
                 self.files[path] = _digest(data)
-                if total + len(data) > MAX_SNAPSHOT_BYTES or not self._save(path, data):
-                    self.unbacked.add(path)
-                else:
+                if self._save(path, data):
                     total += len(data)
+                else:
+                    self.unbacked.add(path)
         for path in watchlist(self.home):
             # Followed on purpose: a dotfiles setup where ~/.zshrc is a symlink
             # is normal, and hashing the link itself would report "absent" for
@@ -233,8 +267,13 @@ def _patch_counts() -> Dict[str, int]:
     return counts
 
 
-def _restore(path: str, data: Optional[bytes]) -> bool:
-    """Put `path` back the way the snapshot found it (deleting it if it was new)."""
+def _restore(path: str, data: Optional[bytes], mode: Optional[int] = None) -> bool:
+    """Put `path` back the way the snapshot found it (deleting it if it was new).
+
+    The mode is restored as well: reverting an executable `scripts/run.sh` under
+    the process umask would turn 0755 into 0644 and leave a "successfully rolled
+    back" skill that no longer runs.
+    """
     try:
         if data is None:
             if os.path.isfile(path) and not os.path.islink(path):
@@ -247,6 +286,8 @@ def _restore(path: str, data: Optional[bytes]) -> bool:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
+        if mode is not None:
+            os.chmod(temporary, mode)
         os.replace(temporary, path)
         return True
     except OSError:
@@ -333,7 +374,7 @@ def verify(before: Snapshot) -> Dict[str, Any]:
         if existed and original is None:
             unprotected.append(path)
             return
-        if _restore(path, original):
+        if _restore(path, original, before.modes.get(path) if existed else None):
             rolled_back.append({"name": skill_paths.skill_name(path), "reason": reason})
         else:
             unprotected.append(path)
@@ -450,6 +491,29 @@ def _record_patches(installed: List[Dict[str, str]], before_counts: Dict[str, in
         pass
 
 
+def revert_to(before: Snapshot) -> List[str]:
+    """Put the skill tree back exactly as `before` found it.
+
+    Used when a run produced no usable verdict. Unlike `verify`, nothing is
+    judged or installed: every difference is undone, because a run that could
+    not report what it did has no standing to change the library.
+    """
+    reverted: List[str] = []
+    after = Snapshot(before.root, before.home).capture()
+    for path in sorted(set(after.files) | set(before.files)):
+        existed = path in before.files
+        if existed and after.files.get(path) == before.files.get(path):
+            continue
+        if existed and path in before.unbacked:
+            continue  # no copy to put back; verify() reports it as unprotected
+        original = before.original(path) if existed else None
+        if existed and original is None:
+            continue
+        if _restore(path, original, before.modes.get(path) if existed else None):
+            reverted.append(path)
+    return reverted
+
+
 def snapshot(
     root: Optional[str] = None, home: Optional[str] = None, store: Optional[str] = None
 ) -> Snapshot:
@@ -457,15 +521,25 @@ def snapshot(
 
 
 def stamp_provenance(installed: List[Dict[str, str]]) -> None:
-    """Mark installed skills as distilled so the curator can tell them apart."""
+    """Mark installed skills as distilled so the curator can tell them apart.
+
+    Stamping writes to the file after the guard's only validation, so the
+    result is re-checked: injected metadata can push a file that was exactly at
+    the size limit over it, and an interrupted write can truncate it. If the
+    stamp broke the skill, the pre-stamp text goes back.
+    """
     for item in installed:
         path = item.get("path")
         if not path:
             continue
-        text = _decode(_read(path))
+        original = _read(path)
+        text = _decode(original)
         if text is None:
             continue
         try:
             validate_skill._stamp_provenance(path, text)
         except Exception:
-            pass
+            continue
+        stamped = _decode(_read(path))
+        if stamped is None or validate_skill._validate(stamped):
+            _restore(path, original)

@@ -227,6 +227,49 @@ def test_an_edit_without_a_baseline_is_reported_rather_than_accepted(guard, sand
     assert path in report["unprotected"]
 
 
+def test_rollback_preserves_the_executable_bit(guard, sandbox):
+    sandbox.make_skill("runnable")
+    script = sandbox.skills / "runnable" / "scripts" / "run.sh"
+    _write(script, "#!/bin/sh\necho hi\n")
+    script.chmod(0o755)
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _write(sandbox.skills / "runnable" / "SKILL.md", "broken")
+    _write(script, "#!/bin/sh\necho tampered\n")
+    guard.verify(before)
+    # A "successfully rolled back" skill that is no longer runnable is not
+    # rolled back.
+    assert oct(script.stat().st_mode)[-3:] == "755"
+
+
+def test_revert_to_undoes_everything_without_judging_it(guard, sandbox):
+    sandbox.make_skill("kept")
+    original = (sandbox.skills / "kept" / "SKILL.md").read_text(encoding="utf-8")
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    # A perfectly valid write — but from a run that produced no usable verdict.
+    _write(sandbox.skills / "kept" / "SKILL.md", GOOD.format("kept") + "\nedited\n")
+    _write(sandbox.skills / "invented" / "SKILL.md", GOOD.format("invented"))
+    guard.revert_to(before)
+    assert (sandbox.skills / "kept" / "SKILL.md").read_text(encoding="utf-8") == original
+    assert not (sandbox.skills / "invented" / "SKILL.md").exists()
+
+
+def test_a_stamp_that_breaks_a_skill_is_undone(guard, sandbox, monkeypatch):
+    import validate_skill
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _write(sandbox.skills / "fragile" / "SKILL.md", GOOD.format("fragile"))
+    report = guard.verify(before)
+
+    def _corrupt(path, text):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("truncated")
+
+    monkeypatch.setattr(validate_skill, "_stamp_provenance", _corrupt)
+    guard.stamp_provenance(report["installed"])
+    # Stamping happens after the only validation, so its result is re-checked.
+    assert (sandbox.skills / "fragile" / "SKILL.md").read_text(
+        encoding="utf-8") == GOOD.format("fragile")
+
+
 # --- out-of-scope detection -------------------------------------------------
 
 def test_a_watchlist_write_is_reported(guard, sandbox):

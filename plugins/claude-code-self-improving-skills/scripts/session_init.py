@@ -100,9 +100,10 @@ def _background_note():
     if blocked_by_code.get("authentication_required"):
         alerts.append(
             "증류 작업 {0}건이 CLI 인증을 기다립니다 — `claude setup-token` 후 "
-            "~/.claude/self-improve/worker.env 에 CLAUDE_CODE_OAUTH_TOKEN 을 넣고 "
-            "/distill-status retry 로 재시도하세요".format(
-                blocked_by_code["authentication_required"]))
+            "{1} 에 CLAUDE_CODE_OAUTH_TOKEN 을 넣고 /distill-status retry 로 "
+            "재시도하세요".format(
+                blocked_by_code["authentication_required"],
+                distill_worker.worker_env_file()))
     if blocked_by_code.get("unprotected_write"):
         alerts.append(
             "증류 작업 {0}건에서 되돌릴 수 없는 쓰기가 감지돼 보류됐습니다 — "
