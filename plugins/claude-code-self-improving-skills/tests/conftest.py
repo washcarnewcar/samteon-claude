@@ -22,10 +22,27 @@ SCRIPTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scr
 sys.path.insert(0, SCRIPTS_DIR)
 
 
+def _sandbox_home_env(home):
+    """The env vars that redirect a home directory on every supported OS.
+
+    HOME alone is not enough: ntpath.expanduser consults USERPROFILE (then
+    HOMEDRIVE+HOMEPATH) and ignores HOME entirely, so a HOME-only sandbox
+    silently writes into the developer's REAL ~/.claude on Windows.
+    """
+    drive, tail = os.path.splitdrive(str(home))
+    return {
+        "HOME": str(home),
+        "USERPROFILE": str(home),
+        "HOMEDRIVE": drive,
+        "HOMEPATH": tail or os.sep,
+    }
+
+
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
     """Sandboxed HOME + freshly-reloaded modules bound to it."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    for key, value in _sandbox_home_env(tmp_path).items():
+        monkeypatch.setenv(key, value)
     import curator_backup
     import curator_transitions
     import usage_store
@@ -54,7 +71,7 @@ def sandbox(tmp_path, monkeypatch):
 
 
 def _run_script(home, script, payload):
-    env = dict(os.environ, HOME=str(home))
+    env = dict(os.environ, **_sandbox_home_env(home))
     p = subprocess.run(
         [sys.executable, os.path.join(SCRIPTS_DIR, script)],
         input=json.dumps(payload), capture_output=True, text=True, env=env)
