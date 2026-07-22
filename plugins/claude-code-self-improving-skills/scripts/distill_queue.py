@@ -888,7 +888,15 @@ class DistillQueue:
             conn.commit()
             return {"updated": True, "status": status, "retry_delay_seconds": delay}
 
-    def block(self, job_id: int, owner: str, *, code: str, message: str) -> bool:
+    def block(
+        self,
+        job_id: int,
+        owner: str,
+        *,
+        code: str,
+        message: str,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         """Park a job that needs a human. Evidence is dropped on the way in.
 
         `cleanup()` deliberately never sweeps blocked rows, so anything left in
@@ -896,16 +904,21 @@ class DistillQueue:
         which would quietly break the queue's coordinate-only privacy property
         for exactly the jobs that sit around longest. A retry re-reads the
         transcript, so nothing needed is lost.
+
+        `result` carries the guard's own diagnostic — the paths it could not
+        protect — so `distill_cli status` can show them instead of a truncated
+        error string.
         """
         now = _now()
+        encoded = json.dumps(validate_result(result), ensure_ascii=False) if result else None
         with self._connect() as conn:
             cur = conn.execute(
                 """UPDATE distill_jobs SET status='blocked', error_code=?, last_error=?,
                    completed_at=?, updated_at=?, lease_owner=NULL, lease_expires_at=NULL,
                    heartbeat_at=NULL, worker_pid=NULL, worker_pid_identity=NULL,
-                   last_assistant_message=NULL
+                   last_assistant_message=NULL, result_json=?
                    WHERE id=? AND status='running' AND lease_owner=?""",
-                (str(code)[:128], str(message)[:4000], now, now, int(job_id), owner),
+                (str(code)[:128], str(message)[:4000], now, now, encoded, int(job_id), owner),
             )
             return cur.rowcount == 1
 

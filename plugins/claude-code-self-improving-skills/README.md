@@ -80,13 +80,17 @@ install -m 600 /dev/null ~/.claude/self-improve/worker.env
 # CLAUDE_CODE_OAUTH_TOKEN=<발급받은 토큰>
 ```
 
-워커는 이 파일을 `O_NOFOLLOW` + 0600 + 일반파일 확인 후 읽어 **자식 프로세스 환경에만** 전달하고, 로그·큐·작업 기록 어디에도 남기지 않습니다. 0600 이 아니면 거부합니다.
+워커는 이 파일을 `O_NOFOLLOW` + 일반파일 확인 후 읽어 **자식 프로세스 환경에만** 전달하고, 로그·큐·작업 기록 어디에도 남기지 않습니다. 자식은 이 파일을 `Read` 로도 열 수 없도록 deny 규칙이 걸려 있습니다.
 
-상태 확인:
+> **Windows 주의**: 권한 검사는 POSIX 모드 비트 기준이라 macOS·Linux 에서만 강제됩니다. Windows 에서는 ACL 을 확인하지 않으므로, 이 파일의 접근 권한은 사용자가 직접 제한해야 합니다.
 
-```bash
-python3 ~/.claude/plugins/**/claude-code-self-improving-skills/scripts/distill_cli.py status
+상태 확인은 슬래시 커맨드로 하세요 — 플러그인 캐시 경로를 직접 쓸 필요가 없고 세 OS 에서 모두 동작합니다:
+
 ```
+/distill-status
+```
+
+막힌 작업을 다시 돌리려면 `/distill-status retry` 입니다.
 
 인증 전이거나 `claude` 를 못 찾으면 **기존 nudge 방식(foreground)으로 자동 폴백**하므로 루프가 죽지는 않습니다. `SIS_REVIEW_MODE=foreground` 로 명시 고정하거나 `off` 로 끌 수 있습니다.
 

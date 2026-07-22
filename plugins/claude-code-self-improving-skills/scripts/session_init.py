@@ -281,7 +281,13 @@ def main():
     except Exception:
         emit_context(None)
 
-    background = _review_mode() == "background"
+    mode = _review_mode()
+    if mode == "off":
+        # Nothing is watching this session, so saying the loop is active would
+        # be false — and the background child runs in this mode too, where any
+        # guidance we inject is pure noise it must ignore.
+        emit_context(None)
+    background = mode == "background"
     if background:
         lines = [
             "[claude-code-self-improving-skills] 자기개선 루프 활성 (백그라운드 모드). "
@@ -298,8 +304,8 @@ def main():
             "호출 실패)를 run_in_background=true 로 호출해 ~/.claude/skills 에 남기세요 — "
             "그냥 종료하면 Stop 훅이 한 번 상기시킵니다.",
             "학습 스킬에서 낡거나 틀린 내용을 발견하면 그 자리에서 해당 SKILL.md 를 patch 하세요. "
-            "백그라운드 증류 호출이 \"권한 분류기에 의해 차단됨\"으로 막히면 플러그인 README 의 "
-            "'auto mode' 섹션(permissions.allow 5줄)을 참조해 사용자에게 1회 추가를 안내하세요.",
+            "백그라운드 모드(기본)로 돌리면 이 위임 자체가 필요 없어집니다 — "
+            "`claude setup-token` 후 ~/.claude/self-improve/worker.env 에 토큰을 넣으면 됩니다.",
         ]
     if learned:
         lines.append("현재 학습된 스킬 {0}개가 ~/.claude/skills 에 누적되어 있습니다.".format(learned))

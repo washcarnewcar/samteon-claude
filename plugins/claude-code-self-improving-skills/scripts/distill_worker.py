@@ -445,12 +445,12 @@ def deny_rules(home: Optional[str] = None) -> List[str]:
         ".ssh/**",
         ".aws/**",
     ]
-    patterns = ["/{0}/{1}".format(base, name) for name in absolute]
+    patterns = ["//{0}/{1}".format(base.lstrip("/"), name) for name in absolute]
     patterns += ["**/.git/**", "**/.husky/**", "**/.mcp.json", "**/.pre-commit-config.yaml"]
     # The plugin's own state directory holds the rollback baseline the guard
     # trusts after the run. A child that could rewrite it could have its own
     # bad bytes "restored" as if they were the original.
-    patterns.append("/{0}/**".format(state))
+    patterns.append("//{0}/**".format(state.lstrip("/")))
 
     rules: List[str] = []
     for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
@@ -461,11 +461,11 @@ def deny_rules(home: Optional[str] = None) -> List[str]:
     # The token still reaches the child through its environment, which no tool
     # can read.
     secrets = [
-        "/{0}/**".format(state),
-        "/{0}/.claude/.credentials.json".format(base),
-        "/{0}/.ssh/**".format(base),
-        "/{0}/.aws/**".format(base),
-        "/{0}/.netrc".format(base),
+        "//{0}/**".format(state.lstrip("/")),
+        "//{0}/.claude/.credentials.json".format(base.lstrip("/")),
+        "//{0}/.ssh/**".format(base.lstrip("/")),
+        "//{0}/.aws/**".format(base.lstrip("/")),
+        "//{0}/.netrc".format(base.lstrip("/")),
         "**/.env",
         "**/.env.*",
     ]
@@ -1366,16 +1366,17 @@ def _preflight(
 
 
 def _symlinked_skills() -> List[str]:
+    """Every symlink anywhere under the skill tree, not just at its top level.
+
+    A nested link such as `foo/scripts -> /outside` escapes just as effectively
+    as a linked skill directory, and the post-run guard could only report the
+    damage after the child had already written through it.
+    """
     root = skill_paths.personal_skills_root()
-    try:
-        entries = sorted(os.listdir(root))
-    except OSError:
+    if not os.path.isdir(root):
         return []
-    return [
-        os.path.join(root, name)
-        for name in entries
-        if not name.startswith(".") and os.path.islink(os.path.join(root, name))
-    ]
+    _files, symlinks = skill_guard._walk_skill_tree(root)
+    return sorted(symlinks)
 
 
 def _run_job(
@@ -1415,10 +1416,43 @@ def _run_job(
     # baseline and can still restore the TRUE pre-run state — recapturing would
     # bake the dead run's writes in as if they had always been there.
     before = _job_baseline(baseline_dir)
+    if before.unbacked:
+        # No rollback copy for some file that already exists. Running anyway
+        # would mean a change there could be neither restored nor certified —
+        # the guard would only be able to report the damage afterwards.
+        queue.block(
+            job_id,
+            owner,
+            code="incomplete_baseline",
+            message="no rollback baseline for: {0}".format(
+                ", ".join(sorted(before.unbacked)[:5])
+            ),
+        )
+        return {"job_id": job_id, "status": "blocked", "reason": "incomplete_baseline"}
+
     result = invoke_child(
         command, prompt=prompt, cwd=workspace, env=env, deadline=deadline, heartbeat=heartbeat
     )
     guard = skill_guard.verify(before)
+    # The baseline described the state before THIS attempt. Now that a verify
+    # has run, a retry must snapshot afresh — otherwise a user edit made during
+    # the retry backoff would be judged as the previous child's work.
+    shutil.rmtree(baseline_dir, ignore_errors=True)
+
+    # Guard violations outrank whatever the child reported. A run that modified
+    # a watched file and then timed out has still modified it, so checking this
+    # only on the success path would let exactly the interesting cases through.
+    violation = _guard_violation(guard)
+    if violation is not None:
+        code, paths = violation
+        queue.block(
+            job_id,
+            owner,
+            code=code,
+            message="{0}: {1}".format(code, ", ".join(paths[:5])),
+            result=_violation_result(guard, code, paths),
+        )
+        return {"job_id": job_id, "status": "blocked", "reason": code, "paths": paths}
 
     if result.returncode != 0:
         combined = "{0}\n{1}".format(result.stderr, result.stdout)
@@ -1471,44 +1505,6 @@ def _run_job(
     skill_guard.stamp_provenance(guard["installed"])
     merged = _merge_guard(structured, guard, _denials(result.stdout))
 
-    if merged.get("unprotected"):
-        # The guard saw a change it could not have reverted. Recording that as
-        # a completed job would put a success stamp on a mutation nobody
-        # verified; park it for a human instead.
-        queue.block(
-            job_id,
-            owner,
-            code="unprotected_write",
-            message="the guard could not guarantee a rollback for: {0}".format(
-                ", ".join(merged["unprotected"][:5])
-            ),
-        )
-        return {
-            "job_id": job_id,
-            "status": "blocked",
-            "reason": "unprotected_write",
-            "unprotected": merged["unprotected"],
-        }
-
-    if merged.get("out_of_scope_writes"):
-        # A watched file changed, which means a deny rule did not hold. The
-        # watchlist exists precisely to catch that; completing the job would
-        # detect the failure and then say nothing about it.
-        queue.block(
-            job_id,
-            owner,
-            code="out_of_scope_write",
-            message="files outside the skill tree changed during the run: {0}".format(
-                ", ".join(merged["out_of_scope_writes"][:5])
-            ),
-        )
-        return {
-            "job_id": job_id,
-            "status": "blocked",
-            "reason": "out_of_scope_write",
-            "out_of_scope_writes": merged["out_of_scope_writes"],
-        }
-
     updated = queue.complete(job_id, owner, merged)
     return {
         "job_id": job_id,
@@ -1518,6 +1514,35 @@ def _run_job(
         "installed": len(guard["installed"]),
         "rolled_back": len(guard["rolled_back"]),
     }
+
+
+def _guard_violation(guard: Dict[str, Any]) -> Optional[Tuple[str, List[str]]]:
+    """The blocking guard finding, if any. Checked on every outcome."""
+    if guard.get("unprotected"):
+        return "unprotected_write", list(guard["unprotected"])
+    if guard.get("out_of_scope_writes"):
+        return "out_of_scope_write", list(guard["out_of_scope_writes"])
+    return None
+
+
+def _violation_result(guard: Dict[str, Any], code: str, paths: List[str]) -> Dict[str, Any]:
+    """A result body for a blocked job, so `distill_cli status` can show the
+    paths rather than only a truncated error string."""
+    body: Dict[str, Any] = {
+        "status": "failed",
+        "skills": [],
+        "candidates": [],
+        "summary": "blocked: {0}".format(code),
+    }
+    if code == "unprotected_write":
+        body["unprotected"] = paths
+    else:
+        body["out_of_scope_writes"] = paths
+    if guard.get("rolled_back"):
+        body["rolled_back"] = [
+            "{0}: {1}".format(item["name"], item["reason"]) for item in guard["rolled_back"]
+        ]
+    return body
 
 
 def _merge_guard(

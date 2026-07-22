@@ -101,10 +101,16 @@ def test_the_same_finished_job_does_not_ask_twice(sandbox):
     assert _init(sandbox).get("reloadSkills") is not True
 
 
-def test_foreground_mode_keeps_the_original_guidance(sandbox):
+def test_foreground_mode_keeps_the_delegation_guidance(sandbox):
     context = _init(sandbox, {"SIS_REVIEW_MODE": "foreground"})["additionalContext"]
     assert "skill-distiller" in context
-    assert "백그라운드 모드" not in context
+    assert "run_in_background=true" in context
+
+
+def test_off_mode_injects_nothing(sandbox):
+    # Claiming the loop is active would be false, and the background child runs
+    # in this mode too — any guidance there is noise it must ignore.
+    assert _init(sandbox, {"SIS_REVIEW_MODE": "off"}) == {}
 
 
 def test_background_mode_tells_the_agent_it_has_nothing_to_do(sandbox):
