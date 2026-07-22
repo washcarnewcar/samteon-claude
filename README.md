@@ -1,6 +1,6 @@
 # samton-plugins
 
-Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT Work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. Claude Code 플러그인은 `.claude-plugin/marketplace.json`, Codex와 ChatGPT Work 플러그인은 루트 `.agents/plugins/marketplace.json`을 통해 각각 배포되며, 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치가 가능합니다. Work 전용 플러그인의 본체는 [chatgpt-work/](./chatgpt-work) 아래에 둡니다.
+Samton 구성원이 각자 만든 플러그인(Claude Code · Codex · ChatGPT Work)을 공유하고 함께 사용하는 팀 저장소입니다. 팀원 누구나 자신의 플러그인을 기여할 수 있고, 다른 팀원들은 한 곳에서 모두를 설치·업데이트할 수 있습니다. 모든 플러그인 본체는 [plugins/](./plugins) 아래에 두며, Claude Code 플러그인은 `.claude-plugin/marketplace.json`, Codex와 ChatGPT Work 플러그인은 루트 `.agents/plugins/marketplace.json`을 통해 각각 배포합니다. 일부 플러그인의 스킬은 [skills.sh](https://skills.sh/) CLI로도 개별 설치할 수 있습니다.
 
 ## 수록 플러그인
 
@@ -107,7 +107,7 @@ npx skills add https://github.com/samton-inc/samton-plugins/tree/main/plugins/fe
 
 ## 기여 / 문의
 
-Samton 팀 공용 저장소입니다. Claude 플러그인은 `plugins/<name>/`에 본체를 두고 `.claude-plugin/marketplace.json`에 등록합니다. Codex 플러그인은 `plugins/<name>/.codex-plugin/plugin.json`, ChatGPT Work 플러그인은 `chatgpt-work/plugins/<name>/.codex-plugin/plugin.json`을 진입점으로 사용하며 둘 다 루트 `.agents/plugins/marketplace.json`에 등록합니다. 현행 데스크톱 앱에서는 두 변형이 같은 marketplace에 함께 표시되므로 각 모드에 맞는 변형을 선택합니다. 외부 사용자의 이슈·PR도 환영합니다.
+Samton 팀 공용 저장소입니다. 모든 플러그인 본체는 `plugins/<name>/`에 둡니다. Claude 플러그인은 `.claude-plugin/marketplace.json`에 등록하고, Codex와 ChatGPT Work 플러그인은 각 본체의 `.codex-plugin/plugin.json`을 진입점으로 사용해 루트 `.agents/plugins/marketplace.json`에 등록합니다. 현행 데스크톱 앱에서는 두 변형이 같은 marketplace에 함께 표시되므로 각 모드에 맞는 변형을 선택합니다. 외부 사용자의 이슈·PR도 환영합니다.
 
 - 이슈: https://github.com/samton-inc/samton-plugins/issues
 - 저장소 관리자: 이정윤 <solstice@samton.co.kr>
