@@ -33,12 +33,17 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
+import skill_paths
+
 try:
     import fcntl  # POSIX (macOS/Linux). Absent on Windows -> we degrade to no-lock.
 except Exception:  # pragma: no cover
     fcntl = None
 
-STATE_DIR = os.path.expanduser("~/.claude/self-improve")
+# Resolved through skill_paths so telemetry, backups, and the distillation
+# queue always agree on one directory — and so HOME redirects the store on
+# Windows too, where os.path.expanduser ignores it.
+STATE_DIR = skill_paths.state_dir()
 STORE_PATH = os.path.join(STATE_DIR, "skill_usage.json")
 LOCK_PATH = os.path.join(STATE_DIR, "skill_usage.lock")
 
@@ -242,7 +247,18 @@ def apply_events(events, session_id=None, new_offset=None):
             meta = data.setdefault("_meta", {})
             # prune BEFORE inserting so the entry just written always survives
             offsets = _prune_session_map(meta.get("offsets") or {})
-            offsets[session_id] = {"o": int(new_offset), "t": now_iso()}
+            # Never move an offset backwards. Transcripts are written
+            # asynchronously, so a hook that happens to read a short file would
+            # otherwise rewind the mark and make the next pass re-count every
+            # event in between as if it were new.
+            # _prune_session_map has already normalized legacy bare ints into
+            # dicts, so this is the only shape that can be here.
+            previous = offsets.get(session_id) or {}
+            try:
+                prior = int(previous.get("o", 0))
+            except (TypeError, ValueError):
+                prior = 0
+            offsets[session_id] = {"o": max(prior, int(new_offset)), "t": now_iso()}
             meta["offsets"] = offsets
         _save(data)
 

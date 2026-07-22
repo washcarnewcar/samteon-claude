@@ -5,8 +5,6 @@ Stop hook: it decides what gets retried, what never gets retried, and — most
 importantly — that two workers never distil the same session at once.
 """
 
-import json
-
 import pytest
 
 import distill_queue
@@ -18,17 +16,17 @@ def queue(tmp_path):
     return DistillQueue(tmp_path / "jobs.sqlite3")
 
 
-def _enqueue(q, *, session="s1", turn="t1", rows=10, signal=False,
+def _enqueue(q, *, session="s1", prompt="p1", rows=10, signal=False,
              source="none", trigger="interval", **kw):
     return q.enqueue(
-        session_id=session, turn_id=turn, transcript_path="/tmp/t.jsonl",
+        session_id=session, prompt_id=prompt, transcript_path="/tmp/t.jsonl",
         transcript_rows=rows, signal=signal, signal_source=source,
         trigger=trigger, **kw)
 
 
 # --- enqueue: dedup and coalescing -----------------------------------------
 
-def test_same_turn_twice_does_not_create_a_second_job(queue):
+def test_the_same_prompt_twice_does_not_create_a_second_job(queue):
     first = _enqueue(queue)
     second = _enqueue(queue)
     assert second["duplicate"] is True
@@ -36,9 +34,9 @@ def test_same_turn_twice_does_not_create_a_second_job(queue):
     assert len(queue.list_jobs()) == 1
 
 
-def test_new_turn_coalesces_into_the_session_s_pending_job(queue):
-    first = _enqueue(queue, turn="t1", trigger="interval")
-    second = _enqueue(queue, turn="t2", trigger="signal", signal=True,
+def test_a_new_prompt_coalesces_into_the_session_s_pending_job(queue):
+    first = _enqueue(queue, prompt="p1", trigger="interval")
+    second = _enqueue(queue, prompt="p2", trigger="signal", signal=True,
                       source="last_user_message")
     assert second["coalesced"] is True
     assert second["job_id"] == first["job_id"]
@@ -47,27 +45,27 @@ def test_new_turn_coalesces_into_the_session_s_pending_job(queue):
     # the user correction that made this turn worth distilling.
     assert job["signal"] is True
     assert job["trigger"] == "signal+interval"
-    assert job["turn_id"] == "t2"
+    assert job["prompt_id"] == "p2"
 
 
-def test_signal_source_accumulates_across_coalesced_turns(queue):
-    _enqueue(queue, turn="t1", signal=True, source="last_user_message")
-    job_id = _enqueue(queue, turn="t2", signal=True,
+def test_signal_source_accumulates_across_coalesced_prompts(queue):
+    _enqueue(queue, prompt="p1", signal=True, source="last_user_message")
+    job_id = _enqueue(queue, prompt="p2", signal=True,
                       source="transcript_user_messages")["job_id"]
     assert queue.get(job_id)["signal_source"] == (
         "last_user_message+transcript_user_messages")
 
 
 def test_different_sessions_get_their_own_jobs(queue):
-    a = _enqueue(queue, session="s1", turn="t1")
-    b = _enqueue(queue, session="s2", turn="t1")
+    a = _enqueue(queue, session="s1", prompt="p1")
+    b = _enqueue(queue, session="s2", prompt="p1")
     assert a["job_id"] != b["job_id"]
 
 
-def test_running_job_does_not_absorb_a_new_turn(queue):
-    first = _enqueue(queue, turn="t1")
+def test_a_running_job_does_not_absorb_a_new_prompt(queue):
+    first = _enqueue(queue, prompt="p1")
     queue.claim_next("w1")
-    second = _enqueue(queue, turn="t2")
+    second = _enqueue(queue, prompt="p2")
     # Coalescing into a running job would silently change the evidence window
     # under the worker's feet.
     assert second["coalesced"] is False
@@ -80,8 +78,8 @@ def test_last_assistant_message_is_stored_and_bounded(queue):
 
 
 def test_coalescing_keeps_the_previous_final_message_when_none_is_supplied(queue):
-    _enqueue(queue, turn="t1", last_assistant_message="original")
-    job_id = _enqueue(queue, turn="t2")["job_id"]
+    _enqueue(queue, prompt="p1", last_assistant_message="original")
+    job_id = _enqueue(queue, prompt="p2")["job_id"]
     assert queue.get(job_id)["last_assistant_message"] == "original"
 
 
@@ -153,20 +151,15 @@ def test_a_dead_worker_s_job_returns_to_pending(queue, monkeypatch):
     assert job["error_code"] == "worker_interrupted"
 
 
-def test_a_dead_worker_that_already_wrote_a_result_is_completed(queue, tmp_path, monkeypatch):
+def test_a_crashed_worker_s_job_always_reruns_the_whole_pipeline(queue, monkeypatch):
+    """Recovery must never complete a job from a leftover model-authored
+    result: shape validation does not prove skill_guard ever checked what
+    actually landed on disk."""
     _enqueue(queue)
     job_id = queue.claim_next("w1")["id"]
-    result_file = tmp_path / "result.json"
-    result_file.write_text(json.dumps({
-        "status": "changed",
-        "skills": [{"name": "foo", "action": "patched", "path": None}],
-        "candidates": [], "summary": "ok"}), encoding="utf-8")
-    queue.set_result_path(job_id, "w1", str(result_file))
     monkeypatch.setattr(distill_queue, "_pid_alive", lambda pid: False)
     queue.recover_expired_jobs()
-    job = queue.get(job_id)
-    assert job["status"] == "done"
-    assert job["result"]["skills"][0]["name"] == "foo"
+    assert queue.get(job_id)["status"] == "pending"
 
 
 # --- retry / backoff / terminal states --------------------------------------
@@ -201,14 +194,14 @@ def test_blocked_jobs_do_not_burn_attempts_and_can_be_retried(queue):
 # --- retention --------------------------------------------------------------
 
 def test_cleanup_sweeps_settled_history_but_never_pending_or_blocked(queue):
-    _enqueue(queue, session="done-session", turn="t1")
+    _enqueue(queue, session="done-session", prompt="p1")
     done_id = queue.claim_next("w1")["id"]
     queue.complete(done_id, "w1", {"status": "nothing_to_save", "skills": [],
                                    "candidates": [], "summary": "-"})
-    _enqueue(queue, session="blocked-session", turn="t1")
+    _enqueue(queue, session="blocked-session", prompt="p1")
     blocked_id = queue.claim_next("w1")["id"]
     queue.block(blocked_id, "w1", code="authentication_required", message="x")
-    _enqueue(queue, session="pending-session", turn="t1")
+    _enqueue(queue, session="pending-session", prompt="p1")
 
     with queue._connect() as conn:
         conn.execute("UPDATE distill_jobs SET completed_at = 0, created_at = 0")
@@ -220,8 +213,8 @@ def test_cleanup_sweeps_settled_history_but_never_pending_or_blocked(queue):
 
 
 def test_count_created_since_backs_the_daily_spawn_cap(queue):
-    _enqueue(queue, session="a", turn="t1")
-    _enqueue(queue, session="b", turn="t1")
+    _enqueue(queue, session="a", prompt="p1")
+    _enqueue(queue, session="b", prompt="p1")
     assert queue.count_created_since(0) == 2
     with queue._connect() as conn:
         conn.execute("UPDATE distill_jobs SET created_at = 100 WHERE session_id = 'a'")

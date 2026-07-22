@@ -34,6 +34,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+import skill_paths
 
 JOB_STATUSES = ("pending", "running", "done", "failed", "blocked")
 RESULT_STATUSES = ("changed", "nothing_to_save", "candidate", "failed")
@@ -89,48 +90,9 @@ class _QueueConnection(sqlite3.Connection):
                 _secure_sqlite_paths(self.queue_path)
 
 
-def _fallback_user_home() -> Path:
-    for name in ("HOME", "USERPROFILE"):
-        configured = os.environ.get(name)
-        if not configured:
-            continue
-        candidate = Path(configured)
-        if candidate.is_absolute():
-            return candidate.resolve()
-    try:
-        candidate = Path.home()
-        if candidate.is_absolute():
-            return candidate.resolve()
-    except (OSError, RuntimeError):
-        pass
-    if os.name != "nt":
-        try:
-            import pwd
-
-            candidate = Path(pwd.getpwuid(os.getuid()).pw_dir)
-            if candidate.is_absolute():
-                return candidate.resolve()
-        except (ImportError, KeyError, OSError, RuntimeError):
-            pass
-    else:
-        drive = os.environ.get("HOMEDRIVE") or ""
-        tail = os.environ.get("HOMEPATH") or ""
-        candidate = Path(f"{drive}{tail}")
-        if candidate.is_absolute():
-            return candidate.resolve()
-    raise RuntimeError("No absolute user home directory is available")
-
-
 def state_dir() -> Path:
-    """The plugin's data directory — the same one usage_store already uses.
-
-    SIS_STATE_DIR exists for tests (conftest sandboxes HOME, but a worker
-    spawned as a separate process needs an explicit override too).
-    """
-    configured = os.environ.get("SIS_STATE_DIR")
-    if configured:
-        return Path(configured).expanduser().absolute()
-    return _fallback_user_home() / ".claude" / "self-improve"
+    """The plugin's data directory, resolved by the one shared definition."""
+    return Path(skill_paths.state_dir())
 
 
 def default_queue_path() -> Path:
@@ -384,6 +346,13 @@ def validate_result(value: Any) -> Dict[str, Any]:
     rolled_back = _string_list(value.get("rolled_back"), field="rolled_back")
     if rolled_back:
         normalized["rolled_back"] = rolled_back
+    # Kept as its own field rather than folded into out_of_scope_writes: an
+    # unprotected path means the guard could not have reverted a bad write
+    # there, which is a different — and more urgent — statement than "something
+    # outside the skill tree changed".
+    unprotected = _string_list(value.get("unprotected"), field="unprotected")
+    if unprotected:
+        normalized["unprotected"] = unprotected
     return normalized
 
 
@@ -421,7 +390,7 @@ class DistillQueue:
                 CREATE TABLE IF NOT EXISTS distill_jobs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,
-                    turn_id TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
                     transcript_path TEXT NOT NULL,
                     transcript_rows INTEGER NOT NULL CHECK (transcript_rows >= 0),
                     last_assistant_message TEXT,
@@ -440,7 +409,6 @@ class DistillQueue:
                     heartbeat_at REAL,
                     worker_pid INTEGER,
                     worker_pid_identity TEXT,
-                    result_path TEXT,
                     result_json TEXT,
                     error_code TEXT,
                     last_error TEXT,
@@ -457,12 +425,12 @@ class DistillQueue:
                 CREATE INDEX IF NOT EXISTS distill_jobs_created
                     ON distill_jobs(created_at);
 
-                CREATE TABLE IF NOT EXISTS distill_job_turns (
+                CREATE TABLE IF NOT EXISTS distill_job_prompts (
                     session_id TEXT NOT NULL,
-                    turn_id TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
                     job_id INTEGER NOT NULL REFERENCES distill_jobs(id) ON DELETE CASCADE,
                     created_at REAL NOT NULL,
-                    PRIMARY KEY (session_id, turn_id)
+                    PRIMARY KEY (session_id, prompt_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS distill_worker_lease (
@@ -482,7 +450,7 @@ class DistillQueue:
         self,
         *,
         session_id: str,
-        turn_id: str,
+        prompt_id: str,
         transcript_path: str,
         transcript_rows: int,
         signal: bool,
@@ -493,10 +461,10 @@ class DistillQueue:
         cwd: Optional[str] = None,
     ) -> Dict[str, Any]:
         session_id = str(session_id or "global")
-        turn_id = str(turn_id or "")
-        if not turn_id:
+        prompt_id = str(prompt_id or "")
+        if not prompt_id:
             # A stable key is still required for exact-turn deduplication.
-            turn_id = f"anonymous-{uuid.uuid4().hex}"
+            prompt_id = "anonymous-{0}".format(uuid.uuid4().hex)
         transcript_path = (
             os.path.abspath(os.path.expanduser(str(transcript_path or "")))
             if transcript_path
@@ -511,10 +479,10 @@ class DistillQueue:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             duplicate = conn.execute(
-                """SELECT j.* FROM distill_job_turns t
+                """SELECT j.* FROM distill_job_prompts t
                    JOIN distill_jobs j ON j.id = t.job_id
-                   WHERE t.session_id = ? AND t.turn_id = ?""",
-                (session_id, turn_id),
+                   WHERE t.session_id = ? AND t.prompt_id = ?""",
+                (session_id, prompt_id),
             ).fetchone()
             if duplicate is not None:
                 conn.commit()
@@ -553,17 +521,28 @@ class DistillQueue:
                     if source and source != "none" and source not in sources:
                         sources.append(source)
                 combined_source = "+".join(sources) if sources else "none"
-                incoming_path = transcript_path or str(pending["transcript_path"] or "")
-                incoming_cutoff = cutoff if transcript_path else int(pending["transcript_rows"] or 0)
+                previous_path = str(pending["transcript_path"] or "")
+                previous_cutoff = int(pending["transcript_rows"] or 0)
+                incoming_path = transcript_path or previous_path
+                if not transcript_path:
+                    incoming_cutoff = previous_cutoff
+                elif transcript_path == previous_path:
+                    # Transcripts are written asynchronously, so a later Stop
+                    # can read FEWER rows than an earlier one. Shrinking the
+                    # window here would drop rows that were already safely
+                    # queued, losing exactly the work worth distilling.
+                    incoming_cutoff = max(previous_cutoff, cutoff)
+                else:
+                    incoming_cutoff = cutoff
                 conn.execute(
                     """UPDATE distill_jobs SET
-                       turn_id = ?, transcript_path = ?, transcript_rows = ?,
+                       prompt_id = ?, transcript_path = ?, transcript_rows = ?,
                        last_assistant_message = ?, cwd = ?,
                        signal = ?, signal_source = ?, trigger = ?, model = ?,
                        updated_at = ?
                        WHERE id = ?""",
                     (
-                        turn_id,
+                        prompt_id,
                         incoming_path,
                         incoming_cutoff,
                         tail if tail is not None else pending["last_assistant_message"],
@@ -577,9 +556,9 @@ class DistillQueue:
                     ),
                 )
                 conn.execute(
-                    "INSERT INTO distill_job_turns(session_id, turn_id, job_id, created_at)"
+                    "INSERT INTO distill_job_prompts(session_id, prompt_id, job_id, created_at)"
                     " VALUES(?,?,?,?)",
-                    (session_id, turn_id, job_id, now),
+                    (session_id, prompt_id, job_id, now),
                 )
                 row = conn.execute("SELECT * FROM distill_jobs WHERE id = ?", (job_id,)).fetchone()
                 conn.commit()
@@ -593,14 +572,14 @@ class DistillQueue:
 
             cursor = conn.execute(
                 """INSERT INTO distill_jobs(
-                       session_id, turn_id, transcript_path, transcript_rows,
+                       session_id, prompt_id, transcript_path, transcript_rows,
                        last_assistant_message, cwd,
                        signal, signal_source, trigger, model,
                        status, attempts, available_at, created_at, updated_at
                    ) VALUES(?,?,?,?,?,?,?,?,?,?,'pending',0,?,?,?)""",
                 (
                     session_id,
-                    turn_id,
+                    prompt_id,
                     transcript_path,
                     cutoff,
                     tail,
@@ -616,9 +595,9 @@ class DistillQueue:
             )
             job_id = int(cursor.lastrowid or 0)
             conn.execute(
-                "INSERT INTO distill_job_turns(session_id, turn_id, job_id, created_at)"
+                "INSERT INTO distill_job_prompts(session_id, prompt_id, job_id, created_at)"
                 " VALUES(?,?,?,?)",
-                (session_id, turn_id, job_id, now),
+                (session_id, prompt_id, job_id, now),
             )
             row = conn.execute("SELECT * FROM distill_jobs WHERE id = ?", (job_id,)).fetchone()
             conn.commit()
@@ -757,36 +736,13 @@ class DistillQueue:
                 # live stale worker is surfaced for manual attention instead.
                 if _pid_matches_identity(row["worker_pid"], row["worker_pid_identity"]):
                     continue
-                result: Optional[Dict[str, Any]] = None
-                result_path = row["result_path"]
-                if result_path:
-                    try:
-                        result_file = Path(result_path)
-                        if result_file.is_symlink():
-                            raise OSError("result path is a symbolic link")
-                        os.chmod(result_file, 0o600)
-                        result = validate_result(
-                            json.loads(result_file.read_text(encoding="utf-8"))
-                        )
-                    except (OSError, json.JSONDecodeError, ValueError):
-                        result = None
-                if result is not None and result.get("status") != "failed":
-                    conn.execute(
-                        """UPDATE distill_jobs SET status='done', result_json=?, completed_at=?,
-                           updated_at=?, lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
-                           worker_pid=NULL, worker_pid_identity=NULL,
-                           error_code=NULL, last_error=NULL WHERE id=?""",
-                        (json.dumps(result, ensure_ascii=False), now, now, row["id"]),
-                    )
-                elif int(row["attempts"] or 0) >= MAX_ATTEMPTS:
-                    error_code = (
-                        "distill_reported_failure" if result is not None else "worker_interrupted"
-                    )
-                    last_error = (
-                        "Distillation returned status failed"
-                        if result is not None
-                        else "worker exited before recording a result"
-                    )
+                # A crashed worker's job always goes back through the whole
+                # pipeline. Completing it from a leftover result would accept
+                # the model's own account of what it did without skill_guard
+                # ever having checked what actually landed on disk.
+                if int(row["attempts"] or 0) >= MAX_ATTEMPTS:
+                    error_code = "worker_interrupted"
+                    last_error = "worker exited before recording a result"
                     conn.execute(
                         """UPDATE distill_jobs SET status='failed', error_code=?,
                            last_error=?, completed_at=?, updated_at=?,
@@ -800,14 +756,8 @@ class DistillQueue:
                     delay = int(
                         RETRY_DELAYS_SECONDS[min(attempts - 1, len(RETRY_DELAYS_SECONDS) - 1)]
                     )
-                    error_code = (
-                        "distill_reported_failure" if result is not None else "worker_interrupted"
-                    )
-                    last_error = (
-                        "Distillation returned status failed"
-                        if result is not None
-                        else "worker exited before recording a result"
-                    )
+                    error_code = "worker_interrupted"
+                    last_error = "worker exited before recording a result"
                     conn.execute(
                         """UPDATE distill_jobs SET status='pending', available_at=?, updated_at=?,
                            error_code=?, last_error=?, retry_delay_seconds=?,
@@ -847,7 +797,7 @@ class DistillQueue:
                 """UPDATE distill_jobs SET status='running', attempts=attempts+1,
                    lease_owner=?, lease_expires_at=?, heartbeat_at=?, worker_pid=?,
                    worker_pid_identity=?,
-                   started_at=?, updated_at=?, result_path=NULL, retry_delay_seconds=NULL
+                   started_at=?, updated_at=?, retry_delay_seconds=NULL
                    WHERE id=?""",
                 (
                     owner,
@@ -865,15 +815,6 @@ class DistillQueue:
             ).fetchone()
             conn.commit()
             return _as_dict(claimed)
-
-    def set_result_path(self, job_id: int, owner: str, result_path: str) -> bool:
-        with self._connect() as conn:
-            cur = conn.execute(
-                """UPDATE distill_jobs SET result_path=?, updated_at=?
-                   WHERE id=? AND status='running' AND lease_owner=?""",
-                (str(result_path), _now(), int(job_id), owner),
-            )
-            return cur.rowcount == 1
 
     def set_cli_version(self, job_id: int, owner: str, version: str) -> bool:
         """Record which CLI ran the job — flag-contract bugs are version-specific."""
@@ -909,7 +850,8 @@ class DistillQueue:
                 """UPDATE distill_jobs SET status='done', result_json=?, completed_at=?,
                    updated_at=?, lease_owner=NULL, lease_expires_at=NULL, heartbeat_at=NULL,
                    worker_pid=NULL, worker_pid_identity=NULL,
-                   error_code=NULL, last_error=NULL, retry_delay_seconds=NULL
+                   error_code=NULL, last_error=NULL, retry_delay_seconds=NULL,
+                   last_assistant_message=NULL
                    WHERE id=? AND status='running' AND lease_owner=?""",
                 (json.dumps(normalized, ensure_ascii=False), now, now, int(job_id), owner),
             )
@@ -953,12 +895,21 @@ class DistillQueue:
             return {"updated": True, "status": status, "retry_delay_seconds": delay}
 
     def block(self, job_id: int, owner: str, *, code: str, message: str) -> bool:
+        """Park a job that needs a human. Evidence is dropped on the way in.
+
+        `cleanup()` deliberately never sweeps blocked rows, so anything left in
+        `last_assistant_message` would live in the state directory forever —
+        which would quietly break the queue's coordinate-only privacy property
+        for exactly the jobs that sit around longest. A retry re-reads the
+        transcript, so nothing needed is lost.
+        """
         now = _now()
         with self._connect() as conn:
             cur = conn.execute(
                 """UPDATE distill_jobs SET status='blocked', error_code=?, last_error=?,
                    completed_at=?, updated_at=?, lease_owner=NULL, lease_expires_at=NULL,
-                   heartbeat_at=NULL, worker_pid=NULL, worker_pid_identity=NULL
+                   heartbeat_at=NULL, worker_pid=NULL, worker_pid_identity=NULL,
+                   last_assistant_message=NULL
                    WHERE id=? AND status='running' AND lease_owner=?""",
                 (str(code)[:128], str(message)[:4000], now, now, int(job_id), owner),
             )
