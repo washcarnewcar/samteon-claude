@@ -54,7 +54,12 @@ def state_dir():
     """
     configured = os.environ.get("SIS_STATE_DIR")
     if configured:
-        return os.path.abspath(os.path.expanduser(configured))
+        # Expanded against user_home(), not os.path.expanduser: the latter
+        # ignores HOME on Windows, so a redirected home would land part of the
+        # state in the real profile while the rest stayed in the sandbox.
+        if configured.startswith("~"):
+            configured = user_home() + configured[1:]
+        return os.path.abspath(configured)
     return os.path.join(user_home(), ".claude", "self-improve")
 
 

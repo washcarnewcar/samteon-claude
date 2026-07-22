@@ -70,8 +70,9 @@ def sandbox(tmp_path, monkeypatch):
     )
 
 
-def _run_script(home, script, payload):
+def _run_script(home, script, payload, extra_env=None):
     env = dict(os.environ, **_sandbox_home_env(home))
+    env.update(extra_env or {})
     p = subprocess.run(
         [sys.executable, os.path.join(SCRIPTS_DIR, script)],
         input=json.dumps(payload), capture_output=True, text=True, env=env)
@@ -86,13 +87,21 @@ def tool_use(name, inp):
 
 @pytest.fixture
 def run_analyzer(sandbox):
-    """Run analyze_turn.py against a fixture transcript; returns its decision."""
-    def _run(rows, sid, extra=None):
+    """Run analyze_turn.py against a fixture transcript; returns its decision.
+
+    Defaults to foreground mode so these tests exercise the nudge contract
+    directly. Background mode is covered by its own tests, which pass
+    `env={"SIS_REVIEW_MODE": "background"}` explicitly.
+    """
+    def _run(rows, sid, extra=None, env=None):
         tp = sandbox.home / "{0}.jsonl".format(sid)
         tp.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
         payload = {"transcript_path": str(tp), "session_id": sid}
         payload.update(extra or {})
-        return json.loads(_run_script(sandbox.home, "analyze_turn.py", payload))
+        run_env = {"SIS_REVIEW_MODE": "foreground"}
+        run_env.update(env or {})
+        return json.loads(
+            _run_script(sandbox.home, "analyze_turn.py", payload, run_env))
     return _run
 
 

@@ -222,7 +222,10 @@ def authenticated(claude_bin: str, env: Dict[str, str]) -> bool:
     An explicit token in the environment is authoritative — `auth status`
     reports on stored credentials and does not know about one we inject.
     """
-    if env.get("CLAUDE_CODE_OAUTH_TOKEN") or env.get("ANTHROPIC_API_KEY"):
+    if any(
+        env.get(name)
+        for name in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
+    ):
         return True
     result = _run_cli([claude_bin, "auth", "status", "--json"], env)
     if result.returncode != 0:
@@ -411,9 +414,11 @@ def deny_rules(home: Optional[str] = None) -> List[str]:
     `skill_guard` reports anything that slips past it.
 
     A leading `//` is required for an absolute path: a single leading slash is
-    interpreted relative to the project root.
+    interpreted relative to the project root. Backslashes are normalized too —
+    a Windows home of `C:\\Users\\me` would otherwise produce
+    `/C:\\Users\\me/.claude/...`, which matches nothing.
     """
-    base = (home or skill_paths.user_home()).rstrip("/")
+    base = (home or skill_paths.user_home()).replace("\\", "/").rstrip("/")
     absolute = [
         ".claude/settings.json",
         ".claude/settings.local.json",
@@ -499,7 +504,7 @@ def build_prompt(job: Dict[str, Any], evidence: Evidence) -> str:
     payload = json.dumps(
         {
             "session": job.get("session_id"),
-            "turn": job.get("turn_id"),
+            "prompt": job.get("prompt_id"),
             "trigger": job.get("trigger"),
             "signal_source": job.get("signal_source"),
             "cwd": job.get("cwd") or evidence.cwd,
@@ -1090,6 +1095,26 @@ def _run_job(
 
     skill_guard.stamp_provenance(guard["installed"])
     merged = _merge_guard(structured, guard, _denials(result.stdout))
+
+    if merged.get("unprotected"):
+        # The guard saw a change it could not have reverted. Recording that as
+        # a completed job would put a success stamp on a mutation nobody
+        # verified; park it for a human instead.
+        queue.block(
+            job_id,
+            owner,
+            code="unprotected_write",
+            message="the guard could not guarantee a rollback for: {0}".format(
+                ", ".join(merged["unprotected"][:5])
+            ),
+        )
+        return {
+            "job_id": job_id,
+            "status": "blocked",
+            "reason": "unprotected_write",
+            "unprotected": merged["unprotected"],
+        }
+
     updated = queue.complete(job_id, owner, merged)
     return {
         "job_id": job_id,
@@ -1121,12 +1146,15 @@ def _merge_guard(
         ]
     if guard["out_of_scope_writes"]:
         merged["out_of_scope_writes"] = guard["out_of_scope_writes"]
+    # Kept separate from out_of_scope_writes on purpose: "something changed
+    # outside the tree" and "a change here could not have been reverted" call
+    # for different responses, and the caller blocks the job on the latter.
     if guard.get("unprotected"):
-        merged.setdefault("out_of_scope_writes", [])
-        merged["out_of_scope_writes"] = sorted(
-            set(merged["out_of_scope_writes"]) | set(guard["unprotected"])
-        )
-    if not merged["skills"] and merged["status"] == "changed":
+        merged["unprotected"] = guard["unprotected"]
+    accepted_assets = guard.get("assets") or []
+    if accepted_assets:
+        merged["assets"] = accepted_assets
+    if not merged["skills"] and not accepted_assets and merged["status"] == "changed":
         merged["status"] = "nothing_to_save"
         merged["summary"] = (
             "The run reported changes but nothing survived validation. "
