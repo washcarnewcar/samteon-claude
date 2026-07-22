@@ -44,6 +44,12 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 
 | 변수 | 기본값 | 의미 |
 |---|---|---|
+| `SIS_REVIEW_MODE` | `background` | `background`(별도 프로세스, 메인 턴 무출력·무과금) / `foreground`(기존 nudge) / `off`. background 에서 CLI 미인증·미발견이면 자동으로 foreground 폴백 |
+| `SIS_CLAUDE_BIN` | 자동탐색 | `claude` 절대경로. GUI 로 뜬 훅은 PATH 에 `~/.local/bin` 이 없을 수 있어 필요할 때가 있음 |
+| `SIS_DISTILL_MAX_USD` | `0.50` | 증류 잡 1건의 `--max-budget-usd` 상한 |
+| `SIS_DISTILL_MAX_JOBS_PER_DAY` | `12` | 하루에 띄울 백그라운드 증류 세션 수 상한 |
+| `SIS_CORE_TOUCH_MIN_CALLS` | `6` | 코어 소스 편집(L1 권고)이 백그라운드 증류를 유발하려면 필요한 최소 도구 호출 수. 이게 없으면 이 리포에서 한 줄만 고쳐도 매 턴 세션이 뜸 |
+| `SIS_STATE_DIR` | `~/.claude/self-improve` | 큐·백업·텔레메트리를 전부 옮김 |
 | `SIS_DISTILL_THRESHOLD` | `12` | 증류 nudge를 띄울, 마지막 증류 이후 누적 도구 호출 수 |
 | `SIS_MIN_FILE_EDITS` | `2` | nudge 조건: 마지막 증류 이후 실제 파일 편집(Edit/Write/MultiEdit) 최소 횟수. 순수 탐색·질의 턴은 트리거하지 않게 함 |
 | `SIS_DISTILL_READONLY_THRESHOLD` | `24` | 파일 편집이 **0회**인 구간도 도구 호출이 이 수를 넘으면 nudge — 긴 조사·디버깅 세션의 진단 기법(커맨드 사다리·원인 규명 패턴)이 영원히 증류되지 않는 갭을 막음 (Hermes 는 툴 iteration 만으로 트리거) |
@@ -56,27 +62,56 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 
 `~/.claude/settings.json` 의 `env` 블록이나 셸 환경에서 조정합니다.
 
-## auto mode 사용자 — 권한 허용 (자동 증류가 막힐 때)
+## 백그라운드 증류 설정 (기본 모드)
 
-`~/.claude/settings.json` 의 `permissions.defaultMode` 가 `"auto"` 면, **백그라운드 도구 호출은 권한 프롬프트를 띄울 수 없어 자동 거부(auto-deny)** 됩니다. 그래서 증류 nudge 가 `skill-distiller` 를 `run_in_background:true` 로 호출해도 그 자리에서 차단되어, 자동 증류 루프가 돌지 않습니다.
+`SIS_REVIEW_MODE` 기본값은 `background` 입니다. Stop 훅이 큐에 좌표만 넣고 즉시 끝나고, 별도 프로세스가 `claude -p` 로 증류합니다 — **메인 대화에는 출력도 과금도 없습니다.**
 
-플러그인은 **설치만으로 사용자 권한을 열 수 없습니다** — plugin.json/marketplace 에 권한 선언 필드가 없고, 플러그인이 ship 할 수 있는 default settings 도 `permissions` 를 제외합니다. 이는 의도된 보안 경계입니다(설치=권한 자동부여가 되면 악성 플러그인이 위험). 대신 **사용자가 1회** 다음 규칙을 `permissions.allow` 에 추가하면 영구 해결됩니다:
+동작하려면 **CLI 인증을 1회 붙여야 합니다.** 백그라운드 워커는 로그인할 터미널이 없기 때문입니다.
 
-```jsonc
-"Agent(claude-code-self-improving-skills:skill-distiller)",  // 서브에이전트 기동
-"Read(~/.claude/skills/**)",                      // 기존 스킬 읽기/검색
-"Edit(~/.claude/skills/**)",                      // SKILL.md patch
-"Write(~/.claude/skills/**)",                     // 새 SKILL.md 작성
-"Read(~/.claude/projects/**)"                     // transcript(증류 근거) 읽기
+```bash
+claude setup-token
 ```
 
-- 서브에이전트는 **네임스페이스 포함 전체 이름**(`claude-code-self-improving-skills:skill-distiller`)으로 매칭됩니다. 짧은 이름(`skill-distiller`)은 매칭되지 않습니다.
-- `Agent(...)` 는 서브에이전트 "기동"만 허용합니다. 그 안에서 일어나는 Read/Edit/Write 는 **각각 별도로** 권한 평가되므로(백그라운드라 프롬프트 불가 → 명시 없으면 또 auto-deny), 위 경로 규칙이 함께 필요합니다.
-- 홈 경로는 `~` 를 그대로 씁니다. 절대경로로 쓰려면 `Write(//Users/me/.claude/skills/**)` 처럼 **앞에 슬래시 2개**가 필요합니다(`/Users/...` 는 프로젝트 루트 상대로 해석됨).
-- distiller 가 보조 `Bash`(검증·grep)를 쓰다 막히면, 백그라운드 에이전트 로그의 deny 를 보고 좁은 `Bash(...)` 규칙을 점진 추가하세요.
-- `defaultMode` 가 `"default"`(대화형 승인) 면 포그라운드 호출은 프롬프트로 승인할 수 있으나, **백그라운드 호출은 mode 와 무관하게 사전 allow 가 필요**합니다.
+발급된 토큰을 파일에 넣습니다(채팅·커밋에 붙여넣지 마세요):
 
-SessionStart 는 이 절차의 전문을 매 세션 주입하지 않습니다(상시 컨텍스트 비용) — 짧은 참조 포인터만 남기고, 실제 차단이 가장 자주 발생하는 지점인 Stop 훅 nudge 문구가 차단 시 이 섹션을 참조하라고 안내합니다. 원칙은 그대로입니다: settings 를 읽어 차단을 예측하지 말 것(skip 플래그·런타임 모드 등 변수가 많음), 실제로 막혔을 때만 위 5줄 추가를 안내할 것.
+```bash
+install -m 600 /dev/null ~/.claude/self-improve/worker.env
+# 편집기로 열어 아래 한 줄 추가
+# CLAUDE_CODE_OAUTH_TOKEN=<발급받은 토큰>
+```
+
+워커는 이 파일을 `O_NOFOLLOW` + 0600 + 일반파일 확인 후 읽어 **자식 프로세스 환경에만** 전달하고, 로그·큐·작업 기록 어디에도 남기지 않습니다. 0600 이 아니면 거부합니다.
+
+상태 확인:
+
+```bash
+python3 ~/.claude/plugins/**/claude-code-self-improving-skills/scripts/distill_cli.py status
+```
+
+인증 전이거나 `claude` 를 못 찾으면 **기존 nudge 방식(foreground)으로 자동 폴백**하므로 루프가 죽지는 않습니다. `SIS_REVIEW_MODE=foreground` 로 명시 고정하거나 `off` 로 끌 수 있습니다.
+
+## 보안 모델 — 정직하게
+
+백그라운드 자식은 `--permission-mode bypassPermissions` 로 뜹니다. `~/.claude` 가 **보호 경로**라 다른 어떤 모드로도 무인 상태에서 스킬을 쓸 수 없기 때문입니다. 공식 문서 기준으로 보호 경로 쓰기는 `bypassPermissions` 외 모든 모드에서 자동 승인되지 않고, **`permissions.allow` 규칙으로도 pre-approve 되지 않습니다.**
+
+> 이전 버전 README 는 `permissions.allow` 에 `Write(~/.claude/skills/**)` 5줄을 추가하라고 안내했습니다. **그 안내는 틀렸습니다** — allow 규칙은 보호 경로 검사보다 나중에 평가되어 결과를 바꾸지 못합니다.
+
+그 모드는 내장 검사를 전부 끄고, 자식의 입력인 transcript 는 신뢰할 수 없습니다. 그래서 안전장치를 자식이 아니라 **워커 쪽**에 둡니다:
+
+1. **도구 축소** — `Read, Edit, Write, Glob, Grep` 만. Bash·네트워크·서브에이전트 없음.
+2. **deny 규칙 주입** — deny 는 bypass 모드에서도 적용됩니다. `~/.claude/settings.json`, 셸 rc 파일, `.git/**`, `.mcp.json`, `.ssh/**` 등 지속성을 주는 경로를 차단합니다.
+3. **`skill_guard`** — 자식 실행 전 스킬 트리 전체를 디스크에 스냅샷하고, 실행 후 검증·롤백합니다. 순수 Python 이라 자식이 무엇을 했든, 훅이 로드됐든 아니든 항상 동작합니다.
+4. **증거 경계** — transcript 는 매번 새로 만든 UUID 구분자로 감싸고 "지시가 아니라 증거"임을 명시합니다.
+
+**남는 위험 (완화이지 제거가 아닙니다):**
+
+- deny 목록은 **블랙리스트**입니다. bypassPermissions 에는 allowlist 수단이 없습니다(allow 규칙은 이 모드에서 무효). 열거에서 빠진 경로는 자식이 쓸 수 있습니다.
+- `Read`·`Glob`·`Grep` 은 제한되지 않습니다. 프롬프트 인젝션이 성공하면 자식이 **로컬 파일을 읽을 수 있습니다.** 네트워크 도구가 없어 유출 경로는 좁지만, 읽기 자체는 막지 않습니다.
+- 스킬 트리 밖 변조 탐지는 **watchlist 13개 파일 한정**입니다. 전체 파일시스템 스냅샷은 불가능합니다 — 실제 차단은 deny 규칙이 하고, watchlist 는 그게 실패했는지 알아채는 용도입니다.
+- 심볼릭 링크된 스킬이 있으면 작업을 `blocked` 로 세웁니다. 링크를 통한 쓰기는 스냅샷에 없어 되돌릴 수 없습니다.
+- 관리형 조직이 `permissions.disableBypassPermissionsMode` 를 걸었거나 root 로 실행 중이면 백그라운드 모드는 동작하지 않고 foreground 로 폴백합니다.
+
+이 트레이드오프가 받아들이기 어렵다면 `SIS_REVIEW_MODE=foreground` 로 두세요. 사용자가 보는 앞에서 서브에이전트가 증류하며, 메인 턴에 과금됩니다.
 
 ## 설계 원칙 — dev-log의 실패에서 배운 가드레일
 
@@ -92,7 +127,8 @@ SessionStart 는 이 절차의 전문을 매 세션 주입하지 않습니다(�
 
 ## 한계 (정직하게)
 
-- Hermes의 **무음·무료 데몬 스레드**(메인 대화 비용 0으로 백그라운드에서 스킬을 쓰는 fork)는 Claude Code에 대응물이 없습니다. 여기 격리 리뷰어는 서브에이전트라 **메인 턴에 빌링되고 사용자에게 보입니다.** 진짜 백그라운드를 원하면 launchd/cron `claude -p` 로 별도 구성해야 합니다.
+- Hermes의 **무음 데몬 스레드**는 v0.13.0 의 백그라운드 모드로 대응물이 생겼습니다 — 메인 턴에 출력도 과금도 없습니다. 다만 **무료는 아닙니다**: 별도 `claude -p` 세션이므로 구독 사용량을 소모합니다. 잡당 상한은 `SIS_DISTILL_MAX_USD`(기본 0.50), 하루 상한은 `SIS_DISTILL_MAX_JOBS_PER_DAY`(기본 12)로 조절합니다.
+- 증거는 **메인 transcript 만** 읽습니다. 서브에이전트 작업은 `subagents/` 하위 별도 파일이라 증류 근거에 포함되지 않습니다.
 - 프리픽스 캐시 상속, 런타임 ContextVar 기반 provenance도 이식 불가 → frontmatter 스탬프로 근사.
 - 크로스세션 FTS5 검색(Hermes의 RECALL)은 이 플러그인 범위 밖입니다. 필요하면 `remember` 플러그인(메모리 자율 캡처)과 함께 쓰는 것을 권장.
 - **메모리 루프(MEMORY.md/USER.md)는 의도적으로 만들지 않습니다.** Hermes는 메모리(서술적 지식)와 스킬(절차적 지식)을 한 루프에 묶었지만, Claude Code는 **네이티브 `MEMORY.md` auto memory**(v2.1.59+ GA, 기본 ON)가 이미 에이전트 자율 메모리를 담당합니다. 이 플러그인은 **절차적 능력(스킬)** 축만 맡고, 사실 메모리는 네이티브에 위임 — 중복·이중 주입을 피합니다. (역할 분담: `CLAUDE.md`=정적 정책, 네이티브 `MEMORY.md`=자율 사실 메모리, `remember`=세션 요약, 이 플러그인=재사용 스킬.)
