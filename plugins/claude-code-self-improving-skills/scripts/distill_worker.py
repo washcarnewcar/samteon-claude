@@ -40,6 +40,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections import deque
@@ -559,6 +560,187 @@ def child_environment(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
 # --------------------------------------------------------------------------
 
 
+class _WindowsStdinWriter:
+    """Deliver the prompt without letting Windows `communicate` block forever."""
+
+    def __init__(self, stream: Any, prompt: str) -> None:
+        self._stream = stream
+        self._prompt = prompt
+        self.delivered = False
+        self._thread = threading.Thread(
+            target=self._run, name="sis-distill-stdin", daemon=True
+        )
+
+    def _run(self) -> None:
+        try:
+            written = self._stream.write(self._prompt)
+            self._stream.flush()
+            self.delivered = written == len(self._prompt)
+        except (BrokenPipeError, OSError, ValueError):
+            self.delivered = False
+        finally:
+            try:
+                self._stream.close()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def join(self, timeout: float) -> None:
+        self._thread.join(timeout=max(0.0, timeout))
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+
+class _WindowsKillJob:
+    """A Job Object that terminates every assigned descendant when closed.
+
+    Windows has no process groups to signal, so this is how a killed worker
+    still takes its `claude` child — and the child's own helpers — with it.
+    """
+
+    def __init__(self, kernel32: Any, handle: Any) -> None:
+        self._kernel32 = kernel32
+        self._handle = handle
+
+    def assign(self, pid: int) -> bool:
+        import ctypes  # noqa: F401  (imported for the WinAPI constants below)
+
+        process_set_quota = 0x0100
+        process_terminate = 0x0001
+        process_query_limited_information = 0x1000
+        process = self._kernel32.OpenProcess(
+            process_set_quota | process_terminate | process_query_limited_information,
+            False,
+            int(pid),
+        )
+        if not process:
+            return False
+        try:
+            return bool(self._kernel32.AssignProcessToJobObject(self._handle, process))
+        finally:
+            self._kernel32.CloseHandle(process)
+
+    def close(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle:
+            self._kernel32.CloseHandle(handle)
+
+
+def _create_windows_kill_job() -> Optional[_WindowsKillJob]:
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [
+                ("ReadOperationCount", ctypes.c_ulonglong),
+                ("WriteOperationCount", ctypes.c_ulonglong),
+                ("OtherOperationCount", ctypes.c_ulonglong),
+                ("ReadTransferCount", ctypes.c_ulonglong),
+                ("WriteTransferCount", ctypes.c_ulonglong),
+                ("OtherTransferCount", ctypes.c_ulonglong),
+            ]
+
+        class _BasicLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_longlong),
+                ("PerJobUserTimeLimit", ctypes.c_longlong),
+                ("LimitFlags", wintypes.DWORD),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", wintypes.DWORD),
+                ("Affinity", ctypes.c_size_t),
+                ("PriorityClass", wintypes.DWORD),
+                ("SchedulingClass", wintypes.DWORD),
+            ]
+
+        class _ExtendedLimitInformation(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", _BasicLimitInformation),
+                ("IoInfo", _IoCounters),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            return None
+        info = _ExtendedLimitInformation()
+        info.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+            handle, 9, ctypes.byref(info), ctypes.sizeof(info)
+        ):
+            kernel32.CloseHandle(handle)
+            return None
+        return _WindowsKillJob(kernel32, handle)
+    except Exception:
+        return None
+
+
+def _taskkill_tree(pid: int) -> None:
+    """Bounded fallback when Job Object assignment was unavailable."""
+    if os.name != "nt":
+        return
+    kwargs: Dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "timeout": 5,
+        "check": False,
+    }
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if no_window:
+        kwargs["creationflags"] = no_window
+    try:
+        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T", "/F"], **kwargs)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _terminate_process(
+    process: "subprocess.Popen[Any]", windows_job: Optional[_WindowsKillJob] = None
+) -> None:
+    """Kill a child and everything it spawned, on either platform."""
+    if os.name != "nt":
+        _terminate_posix_process_group(process)
+        return
+    try:
+        if windows_job is not None:
+            windows_job.close()
+        elif process.poll() is None:
+            _taskkill_tree(process.pid)
+            if process.poll() is None:
+                process.kill()
+        process.wait(timeout=5)
+    except Exception:
+        try:
+            if process.poll() is None:
+                _taskkill_tree(process.pid)
+                process.kill()
+        except Exception:
+            pass
+
+
 def _terminate_posix_process_group(
     process: "subprocess.Popen[Any]", *, grace_seconds: float = 5.0
 ) -> None:
@@ -585,6 +767,95 @@ def _terminate_posix_process_group(
             pass
 
 
+def _supervise_windows_command(parent_pid: int, command: Sequence[str]) -> int:
+    """Windows equivalent of the POSIX supervisor.
+
+    There is no parent-death signal and no process group to signal, so this
+    waits on a handle to the real parent and owns a KILL_ON_JOB_CLOSE Job
+    Object for the child.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        synchronize = 0x00100000
+        wait_timeout = 258
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        parent_handle = kernel32.OpenProcess(synchronize, False, int(parent_pid))
+    except Exception:
+        return 125
+    if not parent_handle:
+        return 125
+
+    child_job: Optional[_WindowsKillJob] = None
+    child: Optional["subprocess.Popen[Any]"] = None
+    try:
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        )
+        standard = (sys.stdin, sys.stdout, sys.stderr)
+        if any(stream is None for stream in standard):
+            return 126
+        try:
+            for stream in standard:
+                stream.fileno()
+        except (AttributeError, OSError, ValueError):
+            return 126
+        try:
+            # Unlike POSIX fds 0/1/2, Windows standard handles are not reliably
+            # inherited through a second Popen with close_fds set. Bind them
+            # explicitly so the child receives the prompt's EOF and its output
+            # reaches the worker.
+            child = subprocess.Popen(
+                list(command),
+                stdin=sys.stdin,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                creationflags=creationflags,
+                close_fds=True,
+            )
+        except (OSError, ValueError):
+            return 127
+        child_job = _create_windows_kill_job()
+        assigned = bool(child_job is not None and child_job.assign(child.pid))
+        if child_job is not None and not assigned:
+            child_job.close()
+            child_job = None
+
+        while True:
+            returncode = child.poll()
+            if returncode is not None:
+                if child_job is not None:
+                    child_job.close()
+                    child_job = None
+                return int(returncode)
+            if int(kernel32.WaitForSingleObject(parent_handle, 0)) != wait_timeout:
+                if child_job is not None:
+                    child_job.close()
+                    child_job = None
+                else:
+                    _taskkill_tree(child.pid)
+                    if child.poll() is None:
+                        child.kill()
+                try:
+                    child.wait(timeout=5)
+                except (subprocess.SubprocessError, OSError):
+                    pass
+                return 125
+            time.sleep(0.1)
+    finally:
+        if child_job is not None:
+            child_job.close()
+        kernel32.CloseHandle(parent_handle)
+
+
 def _supervise_command(parent_pid: int, command: Sequence[str]) -> int:
     """Keep the child process tree tied to the worker's lifetime.
 
@@ -595,6 +866,8 @@ def _supervise_command(parent_pid: int, command: Sequence[str]) -> int:
     """
     if not command:
         return 2
+    if os.name == "nt":
+        return _supervise_windows_command(parent_pid, command)
     if os.getppid() != int(parent_pid):
         return 125
     received_signal = 0
@@ -643,52 +916,108 @@ def invoke_child(
         "--",
         *list(command),
     ]
+    popen_kwargs: Dict[str, Any] = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "cwd": str(cwd),
+        "env": env,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    windows_job = _create_windows_kill_job()
     try:
-        process = subprocess.Popen(
-            popen_command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(cwd),
-            env=env,
-            start_new_session=True,
-        )
+        process = subprocess.Popen(popen_command, **popen_kwargs)
     except OSError as exc:
+        if windows_job is not None:
+            windows_job.close()
         return CommandResult(127, "", "child launch failed: {0}".format(exc.__class__.__name__))
+    if windows_job is not None and not windows_job.assign(process.pid):
+        windows_job.close()
+        windows_job = None
 
     input_value: Optional[str] = prompt
     outcome: Optional[CommandResult] = None
     cleaned = False
+    stdin_writer: Optional["_WindowsStdinWriter"] = None
     try:
+        if os.name == "nt":
+            # CPython's Windows communicate() writes stdin synchronously before
+            # its timeout machinery can run, so a child that never drains the
+            # pipe deadlocks the worker. Give one daemon thread sole ownership
+            # of the pipe and let the main loop poll only the deadline.
+            stream = process.stdin
+            if stream is None:
+                _terminate_process(process, windows_job)
+                cleaned = True
+                outcome = CommandResult(126, "", "child stdin is unavailable")
+            else:
+                stdin_writer = _WindowsStdinWriter(stream, prompt)
+                process.stdin = None
+                try:
+                    stdin_writer.start()
+                    input_value = None
+                except (OSError, RuntimeError):
+                    _terminate_process(process, windows_job)
+                    cleaned = True
+                    outcome = CommandResult(126, "", "child stdin delivery failed")
+
         while outcome is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                _terminate_posix_process_group(process)
+                _terminate_process(process, windows_job)
                 cleaned = True
                 outcome = CommandResult(process.returncode or 124, "", "", timed_out=True)
                 break
+            poll_seconds = 1.0 if os.name == "nt" else HEARTBEAT_INTERVAL_SECONDS
             try:
                 stdout, stderr = process.communicate(
-                    input=input_value, timeout=min(HEARTBEAT_INTERVAL_SECONDS, remaining)
+                    input=input_value, timeout=min(poll_seconds, remaining)
                 )
                 outcome = CommandResult(process.returncode or 0, stdout, stderr)
             except subprocess.TimeoutExpired:
                 input_value = None  # already delivered; do not resend
+                if os.name == "nt" and process.poll() is not None:
+                    # A descendant can still hold an inherited pipe open after
+                    # the supervisor exits; closing the Job frees it now rather
+                    # than blocking until the run deadline.
+                    if windows_job is not None:
+                        windows_job.close()
+                        windows_job = None
+                        cleaned = True
+                    try:
+                        stdout, stderr = process.communicate(timeout=5)
+                        outcome = CommandResult(process.returncode or 0, stdout, stderr)
+                    except subprocess.TimeoutExpired:
+                        if process.poll() is None:
+                            _terminate_process(process, None)
+                        outcome = CommandResult(125, "", "child pipe cleanup failed")
+                    continue
                 try:
                     lease_alive = heartbeat()
                 except Exception:
                     lease_alive = False
                 if not lease_alive:
-                    _terminate_posix_process_group(process)
+                    _terminate_process(process, windows_job)
                     cleaned = True
                     outcome = CommandResult(process.returncode or 125, "", "worker lease lost")
     finally:
-        if not cleaned and process.poll() is None:
-            _terminate_posix_process_group(process)
+        if not cleaned:
+            if windows_job is not None:
+                windows_job.close()
+            elif process.poll() is None:
+                _terminate_process(process, None)
+        if stdin_writer is not None:
+            stdin_writer.join(5)
 
+    if stdin_writer is not None and stdin_writer.is_alive():
+        return CommandResult(125, "", "child pipe cleanup failed")
     return outcome if outcome is not None else CommandResult(
         125, "", "child ended without a result"
     )
@@ -1256,16 +1585,23 @@ def launch_detached(queue_path: Optional[os.PathLike[str] | str] = None) -> Dict
     command = [sys.executable, str(Path(__file__).resolve()), "--drain", "--queue", str(path)]
     env = dict(os.environ)
     env["SIS_CLAUDE_BIN"] = claude_bin
-    try:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=env,
-            close_fds=True,
-            start_new_session=True,
+    kwargs: Dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "env": env,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = (
+            getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         )
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        process = subprocess.Popen(command, **kwargs)
     except OSError as exc:
         return {"launched": False, "reason": "launch_failed", "error": exc.__class__.__name__}
     return {"launched": True, "reason": "started", "pid": process.pid}

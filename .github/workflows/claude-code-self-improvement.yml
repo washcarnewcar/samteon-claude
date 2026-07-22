@@ -36,6 +36,31 @@ jobs:
       - name: Test plugin
         run: python -m pytest -vv --timeout=60 plugins/claude-code-self-improving-skills/tests
       - run: python -m compileall -q plugins/claude-code-self-improving-skills/scripts
+
+      # The tests invoke the Python scripts directly, which would pass even if
+      # the shell hooks Claude Code actually runs were broken. Windows is where
+      # that gap bites: there is no `python3` on a standard install, so a hook
+      # that hardcodes it becomes a silent no-op nobody notices.
+      - name: Run the real hook commands
+        shell: bash
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}/plugins/claude-code-self-improving-skills
+        run: |
+          set -euo pipefail
+          out=$(echo '{}' | bash "$CLAUDE_PLUGIN_ROOT/hooks/distill-nudge.sh")
+          echo "Stop hook -> $out"
+          echo "$out" | python -c 'import json,sys; assert json.load(sys.stdin)["decision"] in ("approve","block")'
+
+          payload='{"tool_input":{"file_path":"/nonexistent/.claude/skills/x/SKILL.md"}}'
+          echo "$payload" | bash "$CLAUDE_PLUGIN_ROOT/hooks/backup-skill.sh"
+          echo "$payload" | bash "$CLAUDE_PLUGIN_ROOT/hooks/validate-skill.sh"
+          echo '{"source":"startup"}' | bash "$CLAUDE_PLUGIN_ROOT/hooks/session-init.sh" >/dev/null
+
+          # An interpreter must actually have been found; an empty SIS_PYTHON
+          # means every hook above exited early and proved nothing.
+          . "$CLAUDE_PLUGIN_ROOT/hooks/python3.sh"
+          test -n "$SIS_PYTHON"
+          echo "interpreter: $SIS_PYTHON"
       - name: Validate JSON manifests and plugin version parity
         shell: python
         run: |
