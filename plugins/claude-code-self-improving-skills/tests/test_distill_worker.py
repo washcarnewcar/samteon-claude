@@ -163,15 +163,23 @@ def test_a_transcript_containing_a_boundary_string_still_gets_a_unique_one(worke
 
 
 def test_the_child_command_never_passes_the_prompt_positionally(worker):
-    import pathlib
     command = worker.build_claude_command(
-        "/bin/claude", plugin_root=pathlib.Path("/p"), model="sonnet",
-        max_budget_usd="0.5", home="/home/me")
+        "/bin/claude", model="sonnet", max_budget_usd="0.5", home="/home/me")
     # --tools and friends are variadic, so a trailing positional prompt would
     # be swallowed as another value rather than read as the prompt.
     assert command[-2] == "--tools"
     assert "--permission-mode" in command and "bypassPermissions" in command
     assert "Bash" in command[command.index("--disallowedTools") + 1]
+
+
+def test_the_child_command_uses_the_schema_not_a_custom_agent(worker):
+    # A custom agent (--agent) silences --json-schema, so the run returns
+    # markdown instead of structured_output. Confirmed against real claude.
+    command = worker.build_claude_command(
+        "/bin/claude", model="sonnet", max_budget_usd="0.5", home="/home/me")
+    assert "--agent" not in command
+    assert "--plugin-dir" not in command
+    assert "--json-schema" in command
 
 
 def test_deny_rules_cover_the_persistence_paths(worker):

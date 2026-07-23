@@ -52,13 +52,19 @@ def watchlist(home: Optional[str] = None) -> List[str]:
     Mirrors the worker's deny rules. Kept deliberately short: every entry is a
     file whose modification would grant persistence or exfiltration, so a hit
     here is worth interrupting the user for.
+
+    NOT here: `.claude.json`. The child IS a Claude Code session, and the CLI
+    rewrites that global-state file as normal operation — trust prompts, recent
+    projects, MCP state — through its own internals, not a tool call a deny rule
+    could stop. Watching it would flag every healthy distillation as an
+    out-of-scope write (confirmed against a real `claude -p` run). It stays in
+    the deny rules so the agent still cannot Write/Edit it as a tool.
     """
     base = home or skill_paths.user_home()
     relative = (
         ".claude/settings.json",
         ".claude/settings.local.json",
         ".claude/CLAUDE.md",
-        ".claude.json",
         ".zshrc",
         ".zprofile",
         ".zshenv",

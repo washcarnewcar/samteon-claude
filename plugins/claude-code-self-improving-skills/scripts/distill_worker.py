@@ -481,16 +481,21 @@ def child_settings(home: Optional[str] = None) -> str:
 def build_claude_command(
     claude_bin: str,
     *,
-    plugin_root: Path,
     model: Optional[str],
     max_budget_usd: str,
     home: Optional[str] = None,
 ) -> List[str]:
     """The fully-fenced child invocation.
 
-    The prompt is NOT passed positionally: `--tools`, `--disallowedTools`, and
-    `--plugin-dir` are variadic, so a trailing positional argument is swallowed
-    as another value for whichever one came last. It goes on stdin instead.
+    No `--agent`/`--plugin-dir`: a custom agent silences `--json-schema`, so the
+    run returns free-form markdown instead of the structured result the worker
+    parses (confirmed against a real `claude -p` 2.1.218). The distillation
+    procedure the skill-distiller agent used to carry lives in `build_prompt`
+    instead, which does produce a schema-conformant `structured_output`.
+
+    The prompt is NOT passed positionally: `--tools` and `--disallowedTools` are
+    variadic, so a trailing positional argument is swallowed as another value
+    for whichever one came last. It goes on stdin instead.
     """
     return [
         claude_bin,
@@ -509,10 +514,6 @@ def build_claude_command(
         "--settings",
         child_settings(home),
         "--strict-mcp-config",
-        "--plugin-dir",
-        str(plugin_root),
-        "--agent",
-        "claude-code-self-improving-skills:skill-distiller",
         "--permission-mode",
         "bypassPermissions",
         "--disallowedTools",
@@ -557,10 +558,16 @@ def build_prompt(job: Dict[str, Any], evidence: Evidence) -> str:
         "- Capture durable, reusable technique only. A one-off fix, a specific "
         "bug, or an environment-specific workaround is not skill-worthy. "
         "'Nothing to save' is a legitimate outcome, but walk the ladder first.\n"
+        "- To write a skill, create or edit {1}/<skill-name>/SKILL.md: YAML "
+        "frontmatter with `name` (lowercase-hyphen, matching the directory) and "
+        "a one-sentence situation-matching `description` ('Use this when ...'), "
+        "then the technique in the body. If similar skills already exist there, "
+        "match their structure and patch the closest one instead of adding a "
+        "near-duplicate.\n"
         "- If the right target is a repository-local or plugin-provided skill you "
         "must not edit, return it as a candidate instead of writing it.\n"
-        "- Your final message must be exactly the structured result the output "
-        "schema describes.\n\n"
+        "- Your final message must be ONLY the structured result the output "
+        "schema describes — no prose, no markdown, no explanation around it.\n\n"
         "BEGIN_{0}\n{2}\nEND_{0}\n"
     ).format(boundary, skills_root, payload)
 
@@ -1434,19 +1441,13 @@ def _run_job(
     cli_version_used: Optional[str],
 ) -> Dict[str, Any]:
     job_id = int(job["id"])
-    plugin_root = Path(__file__).resolve().parents[1]
     model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
     budget = os.environ.get("SIS_DISTILL_MAX_USD") or DEFAULT_MAX_USD
 
     if cli_version_used:
         queue.set_cli_version(job_id, owner, cli_version_used)
 
-    command = build_claude_command(
-        claude_bin,
-        plugin_root=plugin_root,
-        model=model,
-        max_budget_usd=budget,
-    )
+    command = build_claude_command(claude_bin, model=model, max_budget_usd=budget)
     prompt = build_prompt(job, evidence)
     deadline = time.monotonic() + COMMAND_TIMEOUT_SECONDS
 
