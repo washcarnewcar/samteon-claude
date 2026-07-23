@@ -94,6 +94,17 @@ install -m 600 /dev/null ~/.claude/self-improve/worker.env
 
 인증 전이거나 `claude` 를 못 찾으면 **기존 nudge 방식(foreground)으로 자동 폴백**하므로 루프가 죽지는 않습니다. `SIS_REVIEW_MODE=foreground` 로 명시 고정하거나 `off` 로 끌 수 있습니다.
 
+## 플랫폼 요구사항
+
+훅은 bash 스크립트(`hooks/*.sh`)이고, 스크립트는 Python 3 로 돕니다(CI 는 3.11, 실측은 3.14 에서 확인).
+
+| OS | 필요 | 비고 |
+|---|---|---|
+| macOS · Linux | Python 3 (`python3`) | 기본 동작. 별도 준비 없음 |
+| **Windows** | **Git for Windows (Git Bash)** + Python 3 | Claude Code 는 Windows 에서 훅을 Git Bash 로 실행합니다. `hooks/python3.sh` 가 `py -3`·`python` 을 자동으로 찾습니다(스토어 스텁 `python3` 는 걸러냄). 실제 Windows 머신에서 훅 3종·큐·워커 임포트 동작 확인함 |
+
+**Git Bash 가 없는 Windows** 는 지원하지 않습니다. Claude Code 훅 스키마에는 codex 의 `commandWindows` 같은 OS 별 명령 필드가 없어, Git 없이 cmd 로 훅을 실행할 방법이 없습니다. PowerShell 로 우회하면 pwsh 가 없는 macOS·Linux 에서 매 훅마다 실행 실패 노이즈가 날 수 있어(문서 미명시) 채택하지 않았습니다. Git for Windows 는 Windows 개발자 사실상 표준이고 Git Bash 를 기본 포함합니다.
+
 ## 보안 모델 — 정직하게
 
 백그라운드 자식은 `--permission-mode bypassPermissions` 로 뜹니다. `~/.claude` 가 **보호 경로**라 다른 어떤 모드로도 무인 상태에서 스킬을 쓸 수 없기 때문입니다. 공식 문서 기준으로 보호 경로 쓰기는 `bypassPermissions` 외 모든 모드에서 자동 승인되지 않고, **`permissions.allow` 규칙으로도 pre-approve 되지 않습니다.**
