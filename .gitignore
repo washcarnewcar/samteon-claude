@@ -6,3 +6,6 @@
 # Python
 __pycache__/
 *.py[cod]
+
+# Serena MCP (local tool state — regenerated per machine)
+.serena/
