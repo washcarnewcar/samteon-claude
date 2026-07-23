@@ -5,6 +5,8 @@ Stop hook: it decides what gets retried, what never gets retried, and — most
 importantly — that two workers never distil the same session at once.
 """
 
+import os
+
 import pytest
 
 import distill_queue
@@ -94,9 +96,13 @@ def test_claim_moves_pending_to_running_and_counts_the_attempt(queue):
 
 
 def test_worker_lease_is_a_singleton(queue):
-    assert queue.acquire_worker_lease("w1", pid=1) is True
-    assert queue.acquire_worker_lease("w2", pid=1) is False
-    assert queue.acquire_worker_lease("w1", pid=1) is True  # re-entrant
+    # A real, live pid: the lease steals only when the holder looks dead, and
+    # pid 1 is not a queryable live process on Windows (it is on POSIX), which
+    # would let the "steal" branch fire and defeat the singleton assertion.
+    live = os.getpid()
+    assert queue.acquire_worker_lease("w1", pid=live) is True
+    assert queue.acquire_worker_lease("w2", pid=live) is False
+    assert queue.acquire_worker_lease("w1", pid=live) is True  # re-entrant
 
 
 def test_worker_lease_is_stealable_once_the_holder_is_gone(queue, monkeypatch):

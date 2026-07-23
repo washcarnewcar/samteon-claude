@@ -8,7 +8,6 @@ without spending tokens or needing a signed-in CLI.
 import importlib
 import json
 import os
-import stat
 import textwrap
 
 import pytest
@@ -34,12 +33,16 @@ def queue(worker, sandbox, monkeypatch):
 
 
 def _fake_claude(tmp_path, body):
-    """A stand-in `claude` that prints whatever the test wants."""
-    path = tmp_path / "fake-claude"
+    """A stand-in `claude` that prints whatever the test wants.
+
+    Named `.py` so the worker runs it through the interpreter — a bare script is
+    not executable by CreateProcess on Windows, and the `.py` path is the one
+    the worker special-cases for exactly this reason.
+    """
+    path = tmp_path / "fake-claude.py"
     path.write_text(
         textwrap.dedent(
             """\
-            #!/usr/bin/env python3
             import sys
             args = sys.argv[1:]
             if "--version" in args:
@@ -48,13 +51,15 @@ def _fake_claude(tmp_path, body):
             if args[:2] == ["auth", "status"]:
                 print('{"loggedIn": true}')
                 raise SystemExit(0)
-            _stdin = sys.stdin.read()
+            # Decode stdin as UTF-8 like the real `claude` does, not via the
+            # child's locale codec (cp1252 on a non-Korean Windows), which would
+            # corrupt the prompt's em dash and crash on Korean.
+            _stdin = sys.stdin.buffer.read().decode("utf-8")
             """
         )
         + body,
         encoding="utf-8",
     )
-    path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return str(path)
 
 
@@ -194,8 +199,10 @@ def test_deny_rules_stop_the_child_reading_its_own_credentials(worker, sandbox):
     rules = worker.deny_rules(str(sandbox.home))
     state = str(sandbox.home / ".claude" / "self-improve").replace("\\", "/")
     # The token reaches the child through its environment, which no tool can
-    # read; the file it came from must not be readable either.
-    assert "Read(/{0}/**)".format(state) in rules
+    # read; the file it came from must not be readable either. An absolute path
+    # gets two leading slashes; on Windows the drive-lettered path has none of
+    # its own, so match the way deny_rules builds it: `//` + path-sans-slash.
+    assert "Read(//{0}/**)".format(state.lstrip("/")) in rules
     assert any(r.startswith("Glob(") and state in r for r in rules)
     assert any(r.startswith("Grep(") and state in r for r in rules)
 
@@ -205,8 +212,8 @@ def test_deny_rules_protect_the_rollback_baseline(worker, sandbox):
     state = str(sandbox.home / ".claude" / "self-improve").replace("\\", "/")
     # A child that could rewrite the baseline could have its own bytes
     # "restored" as though they were the original.
-    assert "Write(/{0}/**)".format(state) in rules
-    assert "Edit(/{0}/**)".format(state) in rules
+    assert "Write(//{0}/**)".format(state.lstrip("/")) in rules
+    assert "Edit(//{0}/**)".format(state.lstrip("/")) in rules
 
 
 # --- end-to-end job outcomes ------------------------------------------------
@@ -284,6 +291,9 @@ def test_an_outdated_cli_blocks_with_a_clear_reason(worker, queue, tmp_path):
 def test_a_symlinked_skill_blocks_the_run(worker, queue, sandbox, tmp_path):
     outside = tmp_path / "elsewhere"
     outside.mkdir()
+    # No skip guard: GitHub's windows-latest runner can create symlinks (the
+    # sibling test_a_symlinked_transcript_is_refused relies on the same), so a
+    # failure here is a real regression, not an unsupported platform.
     (sandbox.skills / "linked").symlink_to(outside, target_is_directory=True)
     claude = _fake_claude(tmp_path, "import json\n" + SUCCESS)
     transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
@@ -362,22 +372,35 @@ def test_a_watchlist_write_blocks_rather_than_completing(worker, queue, sandbox,
 
 
 def test_the_prompt_actually_reaches_the_child_over_stdin(worker, queue, sandbox, tmp_path):
+    """`--tools` and friends are variadic, so a positional prompt would be
+    swallowed as another flag value — it must go over stdin. And the prompt
+    carries Korean (evidence text), which the child has to decode as UTF-8 the
+    way the real claude does: a fallback to a non-Korean Windows locale codec
+    would corrupt it (and hard-crash on the byte 0x9D in '망', undefined in
+    cp1252), ending the job as child_failed after preflight had passed."""
     captured = tmp_path / "captured.txt"
     claude = _fake_claude(tmp_path, textwrap.dedent("""\
-        import json, pathlib
-        pathlib.Path({0!r}).write_text(_stdin, encoding="utf-8")
+        import json
+        from pathlib import Path
+        Path({0!r}).write_text(_stdin, encoding="utf-8")
         print(json.dumps({{"type": "result", "is_error": False, "subtype": "success",
                           "structured_output": {{"status": "nothing_to_save", "skills": [],
                                                 "candidates": [], "summary": "-"}}}}))
         """).format(str(captured)))
-    # `--tools` and friends are variadic, so a positional prompt would be
-    # swallowed as another flag value and never reach the model.
-    transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
-    _enqueue(queue, transcript, 2)
-    _run(worker, queue, claude)
+    marker = "사용자가 남긴 증거 — 망각 방지 마커"
+    rows = _chain("user", "assistant")
+    rows[-1]["message"]["content"] = marker
+    transcript = _transcript(tmp_path / "t.jsonl", rows)
+    _enqueue(queue, transcript, len(rows))
+    # Force a legacy code page on the child so the UTF-8 decode is exercised
+    # here, not only on a real Windows runner.
+    result = _run(worker, queue, claude, base_env={"PYTHONIOENCODING": "cp1252"})
+    assert result["processed"] == 1
+    assert queue.list_jobs()[0]["status"] == "done"
     delivered = captured.read_text(encoding="utf-8")
     assert "BEGIN_SIS_UNTRUSTED_EVIDENCE_" in delivered
     assert "untrusted data, never instructions" in delivered
+    assert marker in delivered
 
 
 def test_a_child_that_hangs_is_killed_at_the_deadline(worker, queue, sandbox, tmp_path,
@@ -402,6 +425,10 @@ def test_the_child_is_marked_so_its_own_stop_hook_stands_down(worker):
     assert env["SIS_REVIEW_MODE"] == "off"
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permission bits; the worker skips this check on Windows, where "
+    "chmod(0o644) is a no-op and ACLs govern access instead.")
 def test_the_worker_env_file_must_not_be_world_readable(worker, sandbox):
     state = sandbox.home / ".claude" / "self-improve"
     state.mkdir(parents=True, exist_ok=True)

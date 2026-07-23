@@ -18,8 +18,12 @@ import json
 import os
 from typing import Any, Dict, List
 
+import sis_io
 from distill_queue import DistillQueue, default_queue_path
 import distill_worker
+
+# Pin UTF-8 before this CLI's Korean status text is printed; see sis_io.
+sis_io.pin_utf8_stdio()
 
 # What a human can actually do about each blocked state.
 REMEDIES = {

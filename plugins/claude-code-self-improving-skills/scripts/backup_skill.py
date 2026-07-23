@@ -20,9 +20,16 @@ import os
 import shutil
 import sys
 
+import sis_io
 # Plain import: Python puts a script's own directory on sys.path[0], and the
 # test suite adds scripts/ explicitly, so no path bootstrap is needed here.
 from skill_paths import backup_dir, backup_path, is_learned_skill
+
+# Pin UTF-8 before reading stdin: a Korean file path in the payload would
+# otherwise crash the locale-codec decode, and this hook swallows that and
+# exits WITHOUT the pre-edit backup, leaving the validator nothing to roll a
+# broken edit back to.
+sis_io.pin_utf8_stdio()
 
 
 def main():

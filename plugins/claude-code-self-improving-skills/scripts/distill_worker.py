@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Deque, Dict, List, Optional, Sequence, Set, Tuple
 
+import sis_io
 import skill_guard
 import skill_paths
 from distill_queue import (
@@ -57,6 +58,10 @@ from distill_queue import (
     state_dir,
     validate_result,
 )
+
+# Pin UTF-8 before the --drain result JSON is printed to stdout for the
+# CLI/caller; see sis_io.
+sis_io.pin_utf8_stdio()
 
 COMMAND_TIMEOUT_SECONDS = 600
 HEARTBEAT_INTERVAL_SECONDS = 15
@@ -185,7 +190,21 @@ def discover_claude(env: Optional[Dict[str, str]] = None) -> Optional[str]:
 
 
 def _is_executable(path: str) -> bool:
-    return os.path.isfile(path) and os.access(path, os.X_OK)
+    return os.path.isfile(path) and (os.access(path, os.X_OK) or path.lower().endswith(".py"))
+
+
+def _claude_argv(claude_bin: str) -> List[str]:
+    """The argv prefix for invoking `claude`.
+
+    A native `claude` binary runs directly. A `.py` target — normally the test
+    fake, but also possible if an operator points SIS_CLAUDE_BIN at a `.py`
+    wrapper — is run through the current interpreter, so the same invocation
+    path works on Windows too, where a bare `.py` is not executable by
+    CreateProcess.
+    """
+    if claude_bin.lower().endswith(".py"):
+        return [sys.executable, claude_bin]
+    return [claude_bin]
 
 
 def _run_cli(command: Sequence[str], env: Dict[str, str], timeout: int = 30) -> CommandResult:
@@ -210,7 +229,7 @@ def _run_cli(command: Sequence[str], env: Dict[str, str], timeout: int = 30) -> 
 
 
 def cli_version(claude_bin: str, env: Dict[str, str]) -> Optional[Tuple[int, ...]]:
-    result = _run_cli([claude_bin, "--version"], env)
+    result = _run_cli(_claude_argv(claude_bin) + ["--version"], env)
     if result.returncode != 0:
         return None
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", result.stdout)
@@ -228,7 +247,7 @@ def authenticated(claude_bin: str, env: Dict[str, str]) -> bool:
         for name in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
     ):
         return True
-    result = _run_cli([claude_bin, "auth", "status", "--json"], env)
+    result = _run_cli(_claude_argv(claude_bin) + ["auth", "status", "--json"], env)
     if result.returncode != 0:
         return False
     try:
@@ -497,8 +516,7 @@ def build_claude_command(
     variadic, so a trailing positional argument is swallowed as another value
     for whichever one came last. It goes on stdin instead.
     """
-    return [
-        claude_bin,
+    return _claude_argv(claude_bin) + [
         "-p",
         "--output-format",
         "json",

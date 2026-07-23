@@ -75,7 +75,13 @@ def _run_script(home, script, payload, extra_env=None):
     env.update(extra_env or {})
     p = subprocess.run(
         [sys.executable, os.path.join(SCRIPTS_DIR, script)],
-        input=json.dumps(payload), capture_output=True, text=True, env=env)
+        # ensure_ascii=False so a non-ASCII path/message reaches the hook as raw
+        # UTF-8 bytes, exactly as Claude Code (Node JSON.stringify) delivers it —
+        # \u-escaping it here would hide the very decode path a Windows codepage
+        # breaks. Decode the hook's stdout as UTF-8 too, matching what the
+        # scripts now pin, not the parent's locale codec (cp1252 on Windows).
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True, text=True, encoding="utf-8", env=env)
     return p.stdout
 
 

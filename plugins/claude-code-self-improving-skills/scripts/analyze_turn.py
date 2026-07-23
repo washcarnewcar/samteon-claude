@@ -43,11 +43,17 @@ import sys
 import time
 from typing import NoReturn
 
+import sis_io
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import usage_store
 except Exception:
     usage_store = None  # telemetry is best-effort; nudge logic works without it
+
+# Pin UTF-8 before any decision is written; a swallowed UnicodeEncodeError on
+# the Korean nudge would otherwise degrade this hook to a silent approve.
+sis_io.pin_utf8_stdio()
 
 SKILL_MARKER = "skill-distiller"
 EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")

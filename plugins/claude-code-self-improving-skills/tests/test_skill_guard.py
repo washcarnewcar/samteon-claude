@@ -227,6 +227,7 @@ def test_an_edit_without_a_baseline_is_reported_rather_than_accepted(guard, sand
     assert path in report["unprotected"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable bit; Windows has none.")
 def test_rollback_preserves_the_executable_bit(guard, sandbox):
     sandbox.make_skill("runnable")
     script = sandbox.skills / "runnable" / "scripts" / "run.sh"

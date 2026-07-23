@@ -27,11 +27,12 @@ def _usable_claude(tmp_path):
 
     Without one the hook correctly refuses to queue, so a test of the queueing
     path would silently be testing the fallback instead.
+
+    Named `.py` and launched through sys.executable by the worker, so it needs
+    no executable bit.
     """
-    import stat
-    fake = tmp_path / "claude"
+    fake = tmp_path / "claude.py"
     fake.write_text(
-        "#!/usr/bin/env python3\n"
         "import sys\n"
         "args = sys.argv[1:]\n"
         "if '--version' in args:\n"
@@ -39,7 +40,6 @@ def _usable_claude(tmp_path):
         "    raise SystemExit(0)\n"
         "print('{\"loggedIn\": true}')\n",
         encoding="utf-8")
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return dict(BACKGROUND, SIS_CLAUDE_BIN=str(fake))
 
 
@@ -82,10 +82,8 @@ def test_background_mode_falls_back_when_the_cli_cannot_actually_run(
         run_analyzer, sandbox, tmp_path):
     """Queueing on a machine where the CLI is unauthenticated would end the
     turn silently and surface the failure only in a blocked job nobody reads."""
-    import stat
-    fake = tmp_path / "claude"
+    fake = tmp_path / "claude.py"  # launched via sys.executable; no exec bit needed
     fake.write_text(
-        "#!/usr/bin/env python3\n"
         "import sys\n"
         "args = sys.argv[1:]\n"
         "if '--version' in args:\n"
@@ -94,7 +92,6 @@ def test_background_mode_falls_back_when_the_cli_cannot_actually_run(
         "print('{\"loggedIn\": false}')\n"
         "raise SystemExit(1)\n",
         encoding="utf-8")
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     env = dict(BACKGROUND, SIS_CLAUDE_BIN=str(fake))
     r = run_analyzer(_work_rows(), "s", extra={"prompt_id": "p1"}, env=env)
     assert r["decision"] == "block"

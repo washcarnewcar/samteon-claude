@@ -32,6 +32,7 @@ import shutil
 import sys
 from typing import NoReturn
 
+import sis_io
 from skill_paths import backup_path, is_learned_skill, skill_name
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -39,6 +40,9 @@ try:
     import usage_store
 except Exception:
     usage_store = None
+
+# Pin UTF-8 before the (Korean) validation message is written; see sis_io.
+sis_io.pin_utf8_stdio()
 
 MAX_NAME = 64
 MAX_DESCRIPTION = 1024

@@ -33,12 +33,16 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
+import sis_io
 import skill_paths
 
 try:
     import fcntl  # POSIX (macOS/Linux). Absent on Windows -> we degrade to no-lock.
 except Exception:  # pragma: no cover
     fcntl = None
+
+# Pin UTF-8 before this tool's (Korean-bearing) JSON dump is printed; see sis_io.
+sis_io.pin_utf8_stdio()
 
 # Resolved through skill_paths so telemetry, backups, and the distillation
 # queue always agree on one directory — and so HOME redirects the store on

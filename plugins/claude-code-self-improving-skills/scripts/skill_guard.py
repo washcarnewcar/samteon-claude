@@ -75,7 +75,10 @@ def watchlist(home: Optional[str] = None) -> List[str]:
         ".npmrc",
         ".gitconfig",
     )
-    return [os.path.join(base, name) for name in relative]
+    # Split each relative entry on "/" so os.path.join yields native separators
+    # — otherwise a Windows path is "C:\\home\\.claude/settings.json", a mixed
+    # form that no normalized path (or exact-string report check) will match.
+    return [os.path.join(base, *name.split("/")) for name in relative]
 
 
 def _digest(data: bytes) -> str:

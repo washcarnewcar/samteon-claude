@@ -24,7 +24,11 @@ import sys
 import time
 from typing import NoReturn
 
+import sis_io
 import skill_paths
+
+# Pin UTF-8 before the (Korean) SessionStart note is written; see sis_io.
+sis_io.pin_utf8_stdio()
 
 SKILLS_DIR = skill_paths.personal_skills_root()
 # Resolved through skill_paths so SIS_STATE_DIR moves ALL plugin state; a
