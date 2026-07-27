@@ -133,15 +133,56 @@ For each changed file, search for potentially missed changes:
 
 Not every flagged file needs changing — this is a reminder to check, not an error report.
 
+### Phase 3.5: Determine Review Target
+
+Phase 4로 넘어가기 전에 **리뷰 대상이 아직 워킹트리에 있는지, 이미 커밋되었는지** 반드시 판별한다. `codex exec review`의 default는 working-tree 변경만 수집하므로, 이미 커밋된 변경을 이 판별 없이 리뷰하면 codex가 의도한 변경분이 아닌 엉뚱한 대상(예: 머지되어 딸려 들어온 다른 브랜치의 커밋)을 리뷰하고 "위반 없음"을 반환한다. 리뷰어 3개 중 1개만 다른 대상을 보면 나머지 2개가 정상이라 더 눈에 띄지 않고, 그 관점의 검토가 통째로 빠진 채 "통과" 처리된다.
+
+**리뷰 대상을 확보하려고 `git reset` 계열로 커밋을 되돌리지 않는다.** `git reset --soft <base>`로 커밋을 워킹트리에 올렸다가 나중에 `git reset --hard <저장한 SHA>`로 복구하는 우회는 금지다. 세션이 중간에 끊기면 사용자는 커밋이 사라진 저장소를 보게 되고, 복구 SHA가 대화 기록에만 있어 안전장치가 없다. 리뷰 범위는 **프롬프트로만** 지정한다 — `codex exec review`는 저장소를 스스로 탐색할 수 있는 에이전트이므로 CLI 옵션 없이도 대상을 지정할 수 있다.
+
+**Step 1 — 대상 파악:**
+```bash
+git status --porcelain   # 미커밋 변경 유무 (비어 있으면 리뷰 대상은 커밋 안에 있다)
+git log --oneline -10    # 이번 작업의 커밋이 어디까지인지 확인
+```
+
+**Step 2 — 분기:**
+
+| 상황 | 처리 |
+|---|---|
+| 변경이 아직 미커밋 (워킹트리) | 기존대로 codex default(working-tree 자동 수집)에 맡긴다. 범위 지시문을 붙이지 않는다. |
+| 변경이 이미 커밋됨 | 아래 `REVIEW_SCOPE_DIRECTIVE`를 세 reviewer focus text **맨 앞**에 붙인다. |
+| 커밋된 변경 + 미커밋 변경이 섞임 | 범위 지시문을 쓰되 커밋 범위와 워킹트리 변경을 모두 대상으로 명시한다. |
+
+**Step 3 — 커밋된 변경일 때 base·head·제외 경로 확정:**
+
+- **base**: 사용자가 리뷰 범위를 지정했으면 그것을 쓴다. 아니면 `git merge-base HEAD origin/<default-branch>`로 산정한다. 어느 쪽이든 산정한 범위(커밋 수·파일 수)를 사용자에게 알린 뒤 진행한다.
+- **head**: 보통 `HEAD`.
+- **제외 경로**: `git diff --name-only <base>..<head>`가 이번 작업과 무관한 경로(머지로 딸려온 다른 브랜치의 파일 등)를 포함하면 그 경로를 제외 대상으로 적는다.
+
+**REVIEW_SCOPE_DIRECTIVE (각 reviewer focus text 맨 앞에 붙임):**
+```
+Review the changes in commits <base>..<head> of this repository (<N> commits, <M> files).
+Run 'git diff <base>..<head>' yourself to see the full change set.
+Do NOT review <제외할 경로> — that is already-merged history and not part of this change.
+```
+- 3번째 줄은 제외할 경로가 있을 때만 넣는다.
+- 미커밋 변경이 섞여 있으면 2번째 줄 뒤에 `Also include the uncommitted working-tree changes (git diff HEAD).`를 추가한다.
+
+확정한 base·head·제외 경로는 이 리뷰 사이클 내내 보존한다. Phase 5의 대상 검증과 Phase 7의 재리뷰가 같은 값을 다시 쓴다.
+
+LEGACY_MODE에서도 동일하게 판별한다. 커밋된 변경이면 각 에이전트 프롬프트의 `Changed files:` 목록을 `git diff --name-only <base>..<head>` 결과로 채우고, 같은 범위 지시문을 프롬프트에 포함한다.
+
 ### Phase 4: Launch Reviewers
 
 #### CODEX_MODE
 
 Reviewer A·B·C 모두 메인 스킬이 직접 `Bash`로 `codex exec review`를 호출한다 (서브에이전트 위임 X). Reviewer C(Conventions)는 codex가 working-tree를 모르므로 Phase 1에서 추출한 프로젝트 규칙을 focus text(PROMPT)에 주입한다.
 
-`codex exec review`는 default로 working-tree 변경(changed or added files)을 자동 수집해 read-only로 리뷰하므로, 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요가 없다. focus text엔 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
+`codex exec review`는 default로 working-tree 변경(changed or added files)을 자동 수집해 read-only로 리뷰한다. **따라서 이 default에 그대로 맡길 수 있는 것은 리뷰 대상이 아직 커밋되지 않았을 때뿐이다** — Phase 3.5에서 커밋된 변경으로 판별했다면 각 focus text 맨 앞에 `REVIEW_SCOPE_DIRECTIVE`를 붙인다. 어느 경우든 메인이 changed files 리스트나 "do not edit" 제약을 prompt로 강제할 필요는 없다. focus text엔 범위 지시문(필요 시)과 review 관점만 담는다. 탐색을 토큰 절약을 위해 인위적으로 제한하지 않는다 — codex가 필요한 만큼 조사하게 둔다.
 
-**중요 — `--uncommitted` 같은 review-target 옵션은 사용 금지**: codex CLI 0.133.0+ 부터 `--uncommitted` / `--base` / `--commit` 같은 review 대상 옵션은 inline `[PROMPT]` 와 mutually exclusive (`error: the argument '--uncommitted' cannot be used with '[PROMPT]'`). focus 차별화를 위해 PROMPT를 인자로 넘기는 본 스킬에서는 옵션을 빼고 default 동작(working-tree 자동 감지)에 맡긴다.
+**중요 — `--uncommitted` / `--base` / `--commit` 같은 review-target 옵션은 사용 금지**: codex CLI 0.133.0+ 부터 이 옵션들은 inline `[PROMPT]` 와 mutually exclusive다 (`error: the argument '--uncommitted' cannot be used with '[PROMPT]'`). 본 스킬은 Bugs / Simplicity / Conventions 관점을 분리하기 위해 PROMPT를 인자로 넘기므로 옵션 쪽을 포기한다.
+
+**대신 리뷰 범위는 PROMPT 안에 적는다.** `codex exec review`는 저장소를 스스로 탐색할 수 있는 에이전트이므로, 커밋 범위를 문장으로 지시하면 스스로 `git diff <base>..<head>`를 실행해 정확한 변경분을 리뷰한다. 즉 "옵션을 못 쓴다 = 커밋된 변경은 리뷰할 수 없다"가 **아니다.** 커밋된 변경의 리뷰는 Phase 3.5의 `REVIEW_SCOPE_DIRECTIVE`로 처리하며, 이 방식은 관점 분리(PROMPT)와 대상 지정을 동시에 만족하는 유일한 경로다.
 
 **Step 1 — 현재 라운드의 결과 디렉터리를 review-cycle state 아래에 만든다:**
 
@@ -181,7 +222,11 @@ Bash(
 
 Bash 3개는 자동 완료 알림 후 다음 턴에 `ROUND_DIR`의 각 `-o` 파일(`bugs.md` / `simplicity.md` / `conventions.md`)을 Read로 회수한다.
 
-각 background job id를 받은 즉시 해당 slot에 `state --action slot-running --slot <slot> --attempt <reserved-attempt> --job-id <id>`를 실행한다. 완료 후에는 `-o` 파일을 확인하고 성공이면 `state --action slot-success --slot <slot> --attempt <reserved-attempt>`, 실패 또는 빈 출력이면 `state --action slot-failure --slot <slot> --attempt <reserved-attempt>`을 실행한다. `launching` 상태의 실패는 해당 프로세스가 시작되지 않았거나 이미 종료됐음을 확인한 뒤에만 기록한다. Resume 시에는 `launch_slots`만 새로 예약하고 시작하며, `collect_slots`의 기존 job만 회수하고, `launching_slots`는 먼저 reconcile한다. 오래되거나 생략된 attempt는 거부된다. 세 slot이 모두 `completed` 또는 명시적으로 `waived`가 된 뒤에만 `state --action round-reviewed`를 실행한다.
+각 background job id를 받은 즉시 해당 slot에 `state --action slot-running --slot <slot> --attempt <reserved-attempt> --job-id <id>`를 실행한다. 완료 후에는 `-o` 파일을 Read로 확인하고 성공이면 `state --action slot-success --slot <slot> --attempt <reserved-attempt>`, 실패·빈 출력·**리뷰 대상 불일치**면 `state --action slot-failure --slot <slot> --attempt <reserved-attempt>`을 실행한다.
+
+**대상 불일치 판정은 `slot-success`를 기록하기 전에 한다.** `-o` 파일에서 리뷰어가 언급한 파일 경로가 이번 변경분(미커밋이면 `git diff --name-only`, 커밋된 변경이면 Phase 3.5에서 확정한 `git diff --name-only <base>..<head>`)과 하나도 겹치지 않으면, 그 리뷰어는 엉뚱한 대상을 본 것이므로 출력이 멀쩡해 보여도 실패로 기록한다. 헬퍼는 `completed`로 기록된 slot을 나중에 실패로 되돌리는 것을 거부하므로(`only a launching or running reviewer slot can fail`), 이 시점을 놓치면 정정 경로가 사라진다. 재시도 시 focus text에 `REVIEW_SCOPE_DIRECTIVE`를 반드시 포함한다. `launching` 상태의 실패는 해당 프로세스가 시작되지 않았거나 이미 종료됐음을 확인한 뒤에만 기록한다. Resume 시에는 `launch_slots`만 새로 예약하고 시작하며, `collect_slots`의 기존 job만 회수하고, `launching_slots`는 먼저 reconcile한다. 오래되거나 생략된 attempt는 거부된다. 세 slot이 모두 `completed` 또는 명시적으로 `waived`가 된 뒤에만 `state --action round-reviewed`를 실행한다.
+
+아래 세 focus text는 **미커밋 변경**을 리뷰하는 경우의 본문이다. Phase 3.5에서 커밋된 변경으로 판별했다면 세 focus text 모두 `REVIEW_SCOPE_DIRECTIVE`를 맨 앞에 붙이고 빈 줄 하나를 둔 뒤 아래 본문을 잇는다.
 
 **Reviewer A focus text (Bugs & Correctness):**
 ```
@@ -286,15 +331,21 @@ Changed files: [list from git diff]
 
 Combine findings from all sources:
 
-1. **Confidence filter (가장 먼저 적용)**: vague "might be a problem" 류 추측 finding은 drop. 구체적 file:line이 있거나 명확한 issue 묘사가 있어야 통과.
+1. **리뷰 대상 검증 (다른 무엇보다 먼저)**: 각 `-o` 파일을 읽을 때, 리뷰어가 언급한 파일 경로가 실제 변경분과 겹치는지 확인한다. 겹치지 않으면 그 리뷰는 무효로 보고 범위를 명시해 재실행한다. **"위반 없음"이라는 결론이 엉뚱한 대상을 본 결과일 수 있다.** 세 리뷰어 중 하나만 다른 대상을 보면 나머지 둘이 제대로 봐서 오히려 눈에 안 띄고, 그 관점의 검토가 통째로 빠진 채 조용히 "통과"된다.
+   - 대조 기준: 미커밋이면 `git diff --name-only`, 커밋된 변경이면 Phase 3.5에서 확정한 `git diff --name-only <base>..<head>`.
+   - 리뷰어가 스스로 "I reviewed the merged X branch" 처럼 다른 대상을 명시하는 경우도 무효다. 결론의 옳고 그름을 따지기 전에 **무엇을 봤는지**부터 본다.
+   - CODEX_MODE에서는 이 검증을 Phase 4의 `slot-success` 기록 전에 이미 수행했어야 한다. 여기서 뒤늦게 발견하면 헬퍼가 완료된 slot의 실패 기록을 거부하므로, 그 라운드 결과를 신뢰할 수 없다고 즉시 사용자에게 보고하고 "통과" 판정을 내리지 않는다. 사용자가 재실행을 택하면 `abort` → guarded `discard` → 새 cycle `init` 경로를 따르고, 새 사이클의 focus text에 `REVIEW_SCOPE_DIRECTIVE`를 포함한다.
+   - LEGACY_MODE에서는 해당 에이전트만 범위를 명시해 다시 실행한다.
 
-2. **Severity classification** (confidence filter 통과한 finding 대상):
+2. **Confidence filter (유효한 리뷰 결과에 가장 먼저 적용)**: vague "might be a problem" 류 추측 finding은 drop. 구체적 file:line이 있거나 명확한 issue 묘사가 있어야 통과.
+
+3. **Severity classification** (confidence filter 통과한 finding 대상):
    - **요구사항 미충족**: Plan requirement not implemented (from Phase 2)
    - **Critical**: Must fix — bugs, security issues, zero-tolerance rule violations
    - **Warning**: Should fix — quality issues, potential problems
    - **Suggestion**: Could fix — minor improvements, style preferences
 
-3. **Codex output mapping** (CODEX_MODE only):
+4. **Codex output mapping** (CODEX_MODE only):
    - 각 codex reviewer 결과는 현재 `ROUND_DIR`의 `-o` 파일(`bugs.md` / `simplicity.md` / `conventions.md`)에 있다 — codex의 최종 리뷰 메시지만 담긴 깨끗한 markdown이다. Read로 읽는다. stdout(진행 로그)은 무시한다.
    - **Severity 토큰이 응답에 있는 경우** — 키워드 매핑: `critical`/`high`/`severe` → 🔴 Critical, `warning`/`medium`/`moderate` → ⚠️ Warning, `suggestion`/`low`/`minor`/`nit` → 💡 Suggestion
    - **Severity 토큰이 없는 경우** — issue content에서 추론한다 (confidence filter를 이미 통과한 상태이므로 finding 자체는 신뢰 가능):
@@ -305,7 +356,7 @@ Combine findings from all sources:
    - 각 finding의 source에 "(Codex)" suffix를 추가해 추적성 확보
    - Deduplicate only by a stable root-cause finding id. The same file:line may carry distinct findings and must never be merged merely by location.
 
-4. **Maintain a Codex feedback ledger (CODEX_MODE only)**:
+5. **Maintain a Codex feedback ledger (CODEX_MODE only)**:
    - After every review round, add each Codex finding that passed the confidence filter **and was verified against the code by the main skill** to `state.json`. A Codex claim is not durable feedback until that verification succeeds.
    - Track every verified severity in the execution ledger, but classify `reusable` separately for **all** severities. Set `reusable: true` only when the root cause supports a concrete future project or module rule; a one-off Critical/Warning fix is not automatically durable, and a Suggestion may be durable when it captures a real convention.
    - Submit verified entries with `state --action record-findings --payload-json '<JSON array>'`; the helper merges only the same stable root-cause id across reviewers and re-review rounds. Each submitted item identifies exactly the current completed round in `source_rounds`; the helper owns merging prior rounds. Preserve the first concrete evidence and update the disposition as the cycle progresses. Submit the independently verified Phase 2 list with `record-gaps` rather than mixing it into Codex findings.
@@ -315,7 +366,7 @@ Combine findings from all sources:
    - The CLI saves and validates the updated `state.json` **before** presenting the report or yielding for a user decision, so a skill re-invocation or context compaction resumes the same ledger and round history.
    - Always call both `record-gaps` and `record-findings` for every completed round, using `[]` when that source is clean. Then run `state --action consolidate-round`. Until both empty-or-populated payloads are recorded and consolidation succeeds, resume remains at `consolidate-round`, user decisions and `finalize` are prohibited, and Codex feedback cannot be silently skipped after context compaction.
 
-5. **Present the report**:
+6. **Present the report**:
 
 ```
 ## 코드 리뷰 결과
@@ -375,9 +426,12 @@ When the user chooses "수정해줘":
 1. Fix all reported requirement gaps and Critical/Warning issues
 2. Announce: "수정이 완료되었습니다. 변경분 전체를 처음부터 다시 검토하겠습니다."
 3. **Re-run Phase 2, then Phase 4 — 요구사항 재검증 + 변경분 전체 full re-review**: 먼저 Phase 2를 다시 실행해 requirement gaps를 갱신한다. 이어 수정된 코드를 *마치 처음 보는 것처럼* 첫 리뷰와 동일한 reviewer 구성(Bugs / Simplicity / Conventions), 동일한 변경 스코프로 처음부터 다시 리뷰한다.
-   - In CODEX_MODE: 기존 `REVIEW_CYCLE_DIR/state.json`에서 같은 `cycle_id`와 ledger를 복원하고 `state --action prepare-rereview`를 실행해 `phase: re-review`, `pending_action: launch-round`를 저장한 뒤 Phase 4로 간다. 이 전이는 현재 repository snapshot을 직접 캡처하여 수정 과정에서 추가된 경로까지 다음 full review 스코프로 명시 승인하지만 HEAD 변경은 거부한다. Phase 4만 `round`를 정확히 한 번 증가시키고 새 `ROUND_DIR`에서 `codex exec review` 3개(Bugs / Simplicity / Conventions)를 실행한다. `codex exec review`는 working-tree 변경분을 자동 수집하므로, 변경이 아직 커밋되지 않은 한 첫 리뷰와 동일한 full 스코프가 유지된다 — focus text도 동일하게 쓴다. 완료된 이전 round 디렉터리나 ledger를 덮어쓰지 않는다.
+   - In CODEX_MODE: 기존 `REVIEW_CYCLE_DIR/state.json`에서 같은 `cycle_id`와 ledger를 복원하고 `state --action prepare-rereview`를 실행해 `phase: re-review`, `pending_action: launch-round`를 저장한 뒤 Phase 4로 간다. 이 전이는 현재 repository snapshot을 직접 캡처하여 수정 과정에서 추가된 경로까지 다음 full review 스코프로 명시 승인하지만 HEAD 변경은 거부한다. Phase 4만 `round`를 정확히 한 번 증가시키고 새 `ROUND_DIR`에서 `codex exec review` 3개(Bugs / Simplicity / Conventions)를 실행한다. 완료된 이전 round 디렉터리나 ledger를 덮어쓰지 않는다.
+     - **리뷰 대상 지정은 첫 리뷰와 같은 방식을 그대로 유지한다.** 첫 리뷰가 미커밋 default였고 수정분도 워킹트리에 있으면, `codex exec review`가 working-tree 변경분을 자동 수집하므로 첫 리뷰와 동일한 full 스코프가 유지된다 — focus text도 동일하게 쓴다.
+     - 첫 리뷰에 `REVIEW_SCOPE_DIRECTIVE`를 썼다면 **재리뷰 focus text에도 같은 지시문을 그대로 넣는다.** 지시문을 빼면 재리뷰가 커밋 범위를 잃고 수정한 줄(워킹트리)만 보게 되어 재리뷰 풀 스코프 원칙이 깨진다. 수정분은 워킹트리에 있으므로 지시문에 `Also include the uncommitted working-tree changes (git diff HEAD).`를 추가한다.
+     - **수정분을 커밋하지 않는다.** `prepare-rereview`는 HEAD 변경을 `HEAD changed before re-review`로 거부하므로, 사이클 도중 새 커밋을 만들면 재리뷰 전이 자체가 막힌다. 수정은 사이클이 끝날 때까지 워킹트리에 둔다. 이미 커밋해 HEAD가 바뀌었다면 이 사이클은 이어갈 수 없다 — `abort` → guarded `discard` 후, 갱신된 head로 base·head를 다시 산정해 새 cycle을 `init`하고 첫 리뷰부터 다시 돈다 (어차피 풀 스코프라 잃는 검토는 없다).
      - 각 reviewer focus text 끝에 다음 문장을 append (full re-review가 주, 이전 이슈 검증은 부차임을 명시): `This is a FULL re-review with the same scope as the first pass. Independently re-examine ALL of the changed code and surface every issue you find, including ones the first pass may have missed — do NOT narrow your review to the fixed lines. As a secondary check only, also confirm these previously reported issues are resolved: [issue list]`
-   - In LEGACY_MODE: 3개 code-reviewer 에이전트를 첫 리뷰와 동일한 focus·동일한 변경 스코프로 재실행한다.
+   - In LEGACY_MODE: 3개 code-reviewer 에이전트를 첫 리뷰와 동일한 focus·동일한 변경 스코프로 재실행한다. 첫 리뷰에 범위 지시문을 썼으면 그대로 다시 넣는다. LEGACY_MODE에는 state의 HEAD 고정 제약이 없으므로, 수정 과정에서 새 커밋이 생겼다면 base는 유지한 채 head를 그 커밋으로 갱신하고 갱신된 커밋 수·파일 수를 지시문에 반영한다.
    - ALL reviewers receive, **in this priority order**:
      - **(a) [1순위] 변경분 전체를 첫 리뷰와 동일 스코프로 처음부터 다시 리뷰** — 첫 리뷰가 놓쳤을 수 있는 기존 이슈를 새로 발굴하는 것이 주목적
      - (b) [부차] the list of previously reported issues to verify resolution
