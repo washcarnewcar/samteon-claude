@@ -43,6 +43,7 @@ import sys
 import time
 from typing import NoReturn
 
+import runtime_env
 import sis_io
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -393,6 +394,15 @@ def main():
     # It is checked before ANY state is touched, so a background session also
     # cannot consume the session-map slots the foreground session needs.
     if os.environ.get("SIS_BACKGROUND_JOB") == "1":
+        approve()
+
+    # Exactly one self-improving-skills variant may act per session. This one
+    # owns local Claude Code, where ~/.claude/skills survives the session and a
+    # distilled skill can simply be written there. Inside Cowork the session
+    # home is discarded, so the cowork variant runs instead — and queueing a
+    # background `claude -p` against a home that is about to vanish would
+    # produce a skill nobody ever sees.
+    if runtime_env.is_cowork_runtime():
         approve()
 
     raw = sys.stdin.read()

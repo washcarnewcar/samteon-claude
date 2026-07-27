@@ -24,6 +24,7 @@ import sys
 import time
 from typing import NoReturn
 
+import runtime_env
 import sis_io
 import skill_paths
 
@@ -276,6 +277,11 @@ def _run_curator(state, lines):
 
 
 def main():
+    # Inside Cowork the cowork variant announces its own loop; describing the
+    # background queue there would promise persistence this session cannot give.
+    if runtime_env.is_cowork_runtime():
+        emit_context(None)
+
     try:
         sys.stdin.read()  # drain payload; we don't need its fields
     except Exception:

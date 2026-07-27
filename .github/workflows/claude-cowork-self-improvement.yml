@@ -1,0 +1,145 @@
+name: Claude Cowork self-improvement plugin
+
+# This variant ships the same hook events as the claude-code one, so the two
+# can end up reachable in a single session. What keeps them from both firing is
+# a pair of details no unit test sees on its own: the -cowork suffix on every
+# shared hook script (identical command strings collapse into one registration,
+# because ${CLAUDE_PLUGIN_ROOT} is only substituted at run time) and the runtime
+# gate inside each script. The hook step below exercises both against the real
+# shell entry points.
+#
+# Windows is not in the matrix: these hooks call `python3` directly, which a
+# standard Windows install does not have. Cowork runs on Linux containers and,
+# in local agent mode, on the user's macOS machine — those are the two that
+# matter here.
+
+on:
+  pull_request:
+    paths:
+      - "plugins/claude-cowork-self-improving-skills/**"
+      - ".claude-plugin/marketplace.json"
+      - ".github/workflows/claude-cowork-self-improvement.yml"
+  push:
+    branches: [main]
+    paths:
+      - "plugins/claude-cowork-self-improving-skills/**"
+      - ".claude-plugin/marketplace.json"
+      - ".github/workflows/claude-cowork-self-improvement.yml"
+
+jobs:
+  test:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest pytest-timeout
+      - name: Test plugin
+        run: python -m pytest -vv --timeout=60 plugins/claude-cowork-self-improving-skills/tests
+      - run: python -m compileall -q plugins/claude-cowork-self-improving-skills/scripts
+
+      # The tests invoke the Python scripts directly, so a hooks.json pointing
+      # at a script name that no longer exists would still pass them. Running
+      # the shell entry points is what catches that.
+      - name: Run the real hook commands
+        shell: bash
+        env:
+          CLAUDE_PLUGIN_ROOT: ${{ github.workspace }}/plugins/claude-cowork-self-improving-skills
+          # Required, not decorative: a runner's HOME is nowhere near a
+          # local-agent-mode-sessions path, so detection reads it as LOCAL and
+          # every hook below would stand down — the step would go green while
+          # proving nothing.
+          SIS_RUNTIME: cowork
+        run: |
+          set -euo pipefail
+          out=$(echo '{}' | bash "$CLAUDE_PLUGIN_ROOT/hooks/distill-nudge-cowork.sh")
+          echo "Stop hook -> $out"
+          echo "$out" | python -c 'import json,sys; assert json.load(sys.stdin)["decision"] in ("approve","block")'
+
+          payload='{"tool_input":{"file_path":"/nonexistent/.claude/skills/x/SKILL.md"}}'
+          echo "$payload" | bash "$CLAUDE_PLUGIN_ROOT/hooks/backup-skill-cowork.sh"
+          echo "$payload" | bash "$CLAUDE_PLUGIN_ROOT/hooks/validate-skill-cowork.sh"
+          echo '{}' | bash "$CLAUDE_PLUGIN_ROOT/hooks/session-advisory.sh" >/dev/null
+
+      # runtime_env.py is deliberately duplicated into both plugins (each
+      # installs as a self-contained directory), and it is the one module where
+      # divergence is silent and total: if a detection fix lands in only one
+      # copy the two variants disagree on what "Cowork" means, and the gate that
+      # exists to keep exactly one of them acting lets both run or neither.
+      - name: Check the duplicated runtime detector has not drifted
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The module only. Each plugin's test_runtime_env.py stays with its
+          # own suite's conventions (the claude-code conftest swaps HOME the
+          # Windows-safe way, this one does not), and both cover the same
+          # cases — it is the detector itself that must never diverge.
+          diff "plugins/claude-code-self-improving-skills/scripts/runtime_env.py" \
+               "plugins/claude-cowork-self-improving-skills/scripts/runtime_env.py" \
+            || { echo "::error::runtime_env.py differs between the two plugins — copy the fix into both"; exit 1; }
+          echo "runtime detector copies are identical"
+
+      # Every command in hooks.json must name a script that exists, and no
+      # command may collide with the claude-code variant's: ${CLAUDE_PLUGIN_ROOT}
+      # is unexpanded at registration time, so two identical strings register
+      # once and one plugin's hooks silently never run. The claude-code workflow
+      # runs the mirror of this check, so a collision introduced from either
+      # side is caught by whichever workflow that change triggers.
+      - name: Check hook scripts exist and do not collide with the sibling plugin
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          def commands(plugin):
+              hooks = json.loads(
+                  (Path("plugins") / plugin / "hooks/hooks.json").read_text(encoding="utf-8"))
+              return {h["command"]
+                      for entries in hooks["hooks"].values()
+                      for entry in entries
+                      for h in entry["hooks"]}
+
+          mine = commands("claude-cowork-self-improving-skills")
+          sibling = commands("claude-code-self-improving-skills")
+
+          root = Path("plugins/claude-cowork-self-improving-skills")
+          for command in sorted(mine):
+              name = command.rsplit("/hooks/", 1)[1].rstrip('"')
+              if not (root / "hooks" / name).is_file():
+                  raise SystemExit(f"hooks.json points at a missing script: {name}")
+
+          shared = mine & sibling
+          if shared:
+              raise SystemExit(
+                  "these hook commands are identical to the claude-code plugin's,"
+                  " so only one of the two would ever run: " + ", ".join(sorted(shared)))
+
+      - name: Validate JSON manifests and plugin version parity
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          plugin_dir = Path("plugins/claude-cowork-self-improving-skills")
+          manifest = json.loads(
+              (plugin_dir / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))
+
+          market = json.loads(
+              Path(".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+          entries = [p for p in market["plugins"] if p["name"] == manifest["name"]]
+          if len(entries) != 1:
+              raise SystemExit(
+                  f"expected exactly one marketplace entry for {manifest['name']},"
+                  f" found {len(entries)}")
+          # Bumping only one of the two files is a mistake this repo has made
+          # before; the mismatch is invisible until someone installs the plugin.
+          if entries[0]["version"] != manifest["version"]:
+              raise SystemExit(
+                  "version mismatch: marketplace.json says"
+                  f" {entries[0]['version']}, plugin.json says {manifest['version']}")
