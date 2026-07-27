@@ -1,6 +1,6 @@
 {
   "name": "git",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Git 워크플로우 자동화: 세션 단위 커밋·푸시·PR·main 머지",
   "author": {
     "name": "김수민",

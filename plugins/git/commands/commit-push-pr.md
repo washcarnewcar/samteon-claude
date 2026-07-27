@@ -5,8 +5,8 @@ description: Commit, push, and open a PR
 
 ## Context
 
-- 이번 세션이 수정한 파일: !`bash ${CLAUDE_PLUGIN_ROOT}/scripts/session_files.sh`
-- 위 파일들의 변경 내용: !`bash ${CLAUDE_PLUGIN_ROOT}/scripts/session_files.sh diff`
+- 이번 세션이 수정한 파일: !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/session_files.sh"`
+- 위 파일들의 변경 내용: !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/session_files.sh" diff`
 - 현재 브랜치: !`git branch --show-current`
 
 ## Your task

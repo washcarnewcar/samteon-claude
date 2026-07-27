@@ -50,9 +50,9 @@ SK Open API에서 TMap은 **두 개의 독립 상품**으로 나뉩니다. 같�
 
 다른 작업 전에:
 
-1. `python3 ${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py status` 실행
+1. `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py" status` 실행
 2. 결과 JSON을 파싱
-3. `last_checked`가 비어 있거나 모든 상품이 `unknown`이면 `python3 ${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py check` 자동 실행 (첨 질의 시에만, 이후 세션에선 status 결과 재사용)
+3. `last_checked`가 비어 있거나 모든 상품이 `unknown`이면 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py" check` 자동 실행 (첨 질의 시에만, 이후 세션에선 status 결과 재사용)
 4. 반환된 capabilities를 기반으로 **reference 로드 여부** 결정
 
 ### Capability → Reference 로드 매핑 (독립 판정)
@@ -76,7 +76,7 @@ SK Open API에서 TMap은 **두 개의 독립 상품**으로 나뉩니다. 같�
 
 사용자가 "신청했어" / "활성화했어" / "상품 추가했어" / "등록했어" 등의 언급을 하면:
 
-1. 즉시 `python3 ${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py refresh` 실행
+1. 즉시 `python3 "${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/onboarding.py" refresh` 실행
 2. 결과를 한글 상품명으로 보고 (예: "TMap 대중교통이 활성화되었습니다")
 3. 이후 갱신된 capabilities 기준으로 동작
 4. 이전에 차단됐던 원래 질의가 있으면 이어서 처리
@@ -102,7 +102,7 @@ All scripts live at `${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/` and share `tmap
 
 Always invoke with absolute paths or from the scripts directory. Example:
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/route.py car --help
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/tmap/scripts/route.py" car --help
 ```
 
 ## Common query flows

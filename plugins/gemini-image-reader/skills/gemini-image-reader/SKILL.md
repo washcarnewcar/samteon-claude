@@ -78,23 +78,23 @@ Gemini CLI 가용성을 먼저 확인한다:
 
 **파일 경로가 주어진 경우:**
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트" "/path/to/image.png"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh" "프롬프트 텍스트" "/path/to/image.png"
 ```
 
 **클립보드/인라인 이미지 (파일 경로 없음):**
 ```bash
 # 인자 없이 호출하면 image-cache에서 가장 최근 이미지를 자동 탐색
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh" "프롬프트 텍스트"
 ```
 
 **여러 이미지 동시 분석:**
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트" "/path/1.png" "/path/2.png"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh" "프롬프트 텍스트" "/path/1.png" "/path/2.png"
 ```
 
 **Playwright 스크린샷:**
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh "프롬프트 텍스트" ".playwright-mcp/page-{timestamp}.png"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh" "프롬프트 텍스트" ".playwright-mcp/page-{timestamp}.png"
 ```
 
 - Bash timeout: 300000ms 권장
@@ -135,4 +135,4 @@ fallback 시에도 Step 1의 컨텍스트 구성 원칙은 동일하게 적용�
 | Gemini 결과를 무시하고 자체 판단 | Gemini 분석을 신뢰하고 그 결과를 기반으로 작업 |
 | Read 도구로 이미지를 직접 읽으려고 함 | Gemini 가용 시에는 Gemini 사용. Gemini 불가 시에만 Read 도구 fallback 허용 |
 | Playwright 스크린샷을 output_image로 직접 분석 | 파일 경로를 스크립트에 전달하여 Gemini에 위임 |
-| wrapper 스크립트 없이 gemini CLI를 직접 호출 | 반드시 ${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh 사용 |
+| wrapper 스크립트 없이 gemini CLI를 직접 호출 | 반드시 `"${CLAUDE_PLUGIN_ROOT}/scripts/gemini-analyze.sh"` 사용 |

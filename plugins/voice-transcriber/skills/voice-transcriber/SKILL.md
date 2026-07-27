@@ -119,7 +119,7 @@ mcp__plugin_telegram_telegram__download_attachment(file_id=<attachment_file_id>)
 Mode A는 항상 whisper 엔진을 사용한다 (`--engine whisper` 명시):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh --engine whisper "<오디오_파일_경로>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh" --engine whisper "<오디오_파일_경로>"
 ```
 
 전사된 텍스트를 사용자의 실제 메시지로 취급하고, 그 내용을 바탕으로 응답한다.
@@ -162,7 +162,7 @@ Mode B로 판별된 후, 전사를 실행하기 전에 사용자에게 질문한
 - 긴 오디오(10분 이상): `run_in_background: true` 사용. 스크립트 자체에 시간 제한은 없다.
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh "<오디오_파일_경로>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh" "<오디오_파일_경로>"
 ```
 
 stdout으로 출력된 텍스트를 파일로 저장한다. Step 3B-2 (파일 저장) 및 Step 3B-3 (응답)으로 진행.
@@ -177,12 +177,12 @@ stdout으로 출력된 텍스트를 파일로 저장한다. Step 3B-2 (파일 �
 
 사용자가 화자 수를 지정한 경우:
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh --diarize --num-speakers <N> "<오디오_파일_경로>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh" --diarize --num-speakers <N> "<오디오_파일_경로>"
 ```
 
 화자 수를 모르는 경우 (자동 감지):
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh --diarize "<오디오_파일_경로>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/transcribe.sh" --diarize "<오디오_파일_경로>"
 ```
 
 사용자가 저장 경로를 지정한 경우 `--output "<저장_디렉토리>"` 추가.
