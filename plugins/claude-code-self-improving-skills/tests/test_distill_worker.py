@@ -556,21 +556,29 @@ def test_the_curation_prompt_states_the_size_ceiling(worker, queue, tmp_path):
     assert "90,000" in prompt
 
 
-def test_a_curation_job_uses_the_stronger_default_model(worker, queue, tmp_path):
+def test_no_model_is_pinned_when_none_was_asked_for(worker, queue, tmp_path):
+    """`--model sonnet` used to be hardcoded, which silently overrode whatever
+    tier the user had chosen for their own work. Leaving the flag off inherits
+    the account's model instead — measured, a child launched without it runs on
+    `claude-opus-5[1m]` for an account whose current model is Opus 5. Applies to
+    both job kinds; the env overrides below are the way to pin one."""
     _enqueue_curate(queue)
     _run(worker, queue, _capturing_claude(tmp_path))
-    argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
-    assert argv[argv.index("--model") + 1] == worker.CURATE_DEFAULT_MODEL
+    assert "--model" not in (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
+
+    transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
+    _enqueue(queue, transcript, 2)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    assert "--model" not in (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
 
 
-def test_a_distillation_job_keeps_its_own_model(worker, queue, tmp_path):
-    """Regression guard: adding the curation branch must not move the default
-    distillation onto the more expensive tier."""
+def test_an_explicit_distillation_model_override_wins(worker, queue, tmp_path, monkeypatch):
+    monkeypatch.setenv("SIS_DISTILLER_MODEL", "sonnet")
     transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
     _enqueue(queue, transcript, 2)
     _run(worker, queue, _capturing_claude(tmp_path))
     argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
-    assert argv[argv.index("--model") + 1] == worker.DEFAULT_MODEL
+    assert argv[argv.index("--model") + 1] == "sonnet"
 
 
 def test_an_explicit_curation_model_override_wins(worker, queue, tmp_path, monkeypatch):

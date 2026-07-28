@@ -73,16 +73,18 @@ HEARTBEAT_INTERVAL_SECONDS = 15
 TRANSCRIPT_WINDOW_ROWS = 400
 MAX_TRANSCRIPT_CHARS = 200_000
 RUN_DIR_NAME = "distill-runs"
-DEFAULT_MODEL = "sonnet"
 
-# A curation pass is a different job on the same rails: same queue, same
-# baseline/rollback, same result schema — only the prompt and the model differ.
-# It reads the whole learned-skill library and decides what to merge, so it is
-# a judgement task (design trade-offs, synthesis across many inputs) rather
-# than the pattern-following work distillation is; hence a stronger default
-# model. Overridable via SIS_CURATE_MODEL.
+# No default model. `--model sonnet` used to be pinned here, which quietly
+# overrode whatever the user had chosen for their own work — a distiller is
+# doing their thinking for them, so the tier should be theirs to pick. Omitting
+# the flag inherits it: measured, a child launched without `--model` runs on
+# `claude-opus-5[1m]` on an account whose current model is Opus 5. Note this is
+# inherited despite `--setting-sources ""`, which blocks the settings FILES,
+# not the account's model selection.
+#
+# `SIS_DISTILLER_MODEL` / `SIS_CURATE_MODEL` still pin a tier when someone
+# wants distillation on a different one than they are working on.
 CURATE_TRIGGER = "curate"
-CURATE_DEFAULT_MODEL = "opus"
 
 # Below this the CLI accepts an invalid --json-schema silently and returns
 # unstructured text, which is indistinguishable from a model that ignored the
@@ -490,14 +492,18 @@ def build_claude_command(
     The prompt is still NOT passed positionally: it goes on stdin, which also
     keeps it out of the process argument list.
     """
-    return _claude_argv(claude_bin) + [
+    command = _claude_argv(claude_bin) + [
         "-p",
         "--output-format",
         "json",
         "--json-schema",
         json.dumps(RESULT_SCHEMA, ensure_ascii=False, sort_keys=True),
-        "--model",
-        model or DEFAULT_MODEL,
+    ]
+    # Only pin a tier when one was explicitly asked for; otherwise leave the
+    # flag off entirely so the child inherits the account's current model.
+    if model:
+        command += ["--model", model]
+    return command + [
         "--no-session-persistence",
         "--setting-sources",
         "",
@@ -1559,14 +1565,9 @@ def _run_job(
 ) -> Dict[str, Any]:
     job_id = int(job["id"])
     curating = is_curate_job(job)
-    if curating:
-        # Judgement work over the whole library, and it archives things — so it
-        # gets the stronger default. An explicit per-job model still wins.
-        model = str(
-            job.get("model") or os.environ.get("SIS_CURATE_MODEL") or CURATE_DEFAULT_MODEL
-        ).strip() or None
-    else:
-        model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
+    # Empty means "don't pass --model", i.e. inherit the account's own model.
+    override = os.environ.get("SIS_CURATE_MODEL" if curating else "SIS_DISTILLER_MODEL")
+    model = str(job.get("model") or override or "").strip() or None
 
     if cli_version_used:
         queue.set_cli_version(job_id, owner, cli_version_used)
