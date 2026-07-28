@@ -478,9 +478,14 @@ def build_claude_command(
     as a runaway guard, and it made every single run fail: the evidence window
     alone is up to 200k characters, so the child blew past the ceiling while
     still reading its own prompt — measured at $1.15 across two turns on a
-    105-row transcript. A ceiling that no successful run can stay under is not
-    a guard, it is an outage that bills you. `COMMAND_TIMEOUT_SECONDS` still
-    bounds a runaway child by wall clock.
+    105-row transcript, against a real run that needs $1.67 over nine turns.
+
+    A ceiling no successful run can stay under is not a guard; it stops the
+    work and consumes the quota anyway. Note the figure it compares against is
+    an API-rate ESTIMATE: the child inherits the parent's OAuth login, so on a
+    claude.ai subscription this spends plan usage, not billed dollars — the
+    ceiling was denominated in a currency the user was not paying in.
+    `COMMAND_TIMEOUT_SECONDS` still bounds a runaway child by wall clock.
 
     The prompt is still NOT passed positionally: it goes on stdin, which also
     keeps it out of the process argument list.
@@ -1651,11 +1656,11 @@ def _run_job(
         reason = _envelope_reason(result.stdout)
         if "budget" in reason:
             # A spend ceiling stops the run at the same place every time, so a
-            # retry only re-bills it. The parse path below has always blocked
-            # this, but the real CLI exits NON-ZERO on a budget stop and never
-            # reaches it — which is how three attempts per job went out the
-            # door. This plugin no longer sets a ceiling; one reaching here
-            # came from the CLI's own configuration.
+            # retry re-spends the quota for the same nothing. The parse path
+            # below has always blocked this, but the real CLI exits NON-ZERO on
+            # a budget stop and never reaches it — which is how three attempts
+            # per job went out the door. This plugin no longer sets a ceiling;
+            # one reaching here came from the CLI's own configuration.
             queue.block(
                 job_id,
                 owner,

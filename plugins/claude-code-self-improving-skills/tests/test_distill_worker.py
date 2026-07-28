@@ -228,8 +228,11 @@ def test_no_spend_ceiling_is_imposed_on_the_child(worker):
     """`--max-budget-usd 0.50` used to be here as a runaway guard and made every
     run fail: the evidence window alone is up to 200k characters, so the child
     blew the ceiling while still reading its prompt ($1.15 over two turns on a
-    105-row transcript, measured). A ceiling no successful run can stay under
-    bills you for nothing. The wall-clock timeout is the remaining bound."""
+    105-row transcript, against a real run needing $1.67 over nine). A ceiling
+    no successful run can stay under stops the work and spends the quota
+    anyway — and on a claude.ai subscription that dollar figure is an API-rate
+    estimate, not money billed. The wall-clock timeout is the remaining bound.
+    """
     command = worker.build_claude_command("/bin/claude", model=None)
     assert "--max-budget-usd" not in command
 
