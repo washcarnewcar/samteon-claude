@@ -74,17 +74,15 @@ TRANSCRIPT_WINDOW_ROWS = 400
 MAX_TRANSCRIPT_CHARS = 200_000
 RUN_DIR_NAME = "distill-runs"
 DEFAULT_MODEL = "sonnet"
-DEFAULT_MAX_USD = "0.50"
 
 # A curation pass is a different job on the same rails: same queue, same
-# baseline/rollback, same result schema — only the prompt and the budget differ.
+# baseline/rollback, same result schema — only the prompt and the model differ.
 # It reads the whole learned-skill library and decides what to merge, so it is
 # a judgement task (design trade-offs, synthesis across many inputs) rather
 # than the pattern-following work distillation is; hence a stronger default
-# model and a larger cap. Both stay overridable.
+# model. Overridable via SIS_CURATE_MODEL.
 CURATE_TRIGGER = "curate"
 CURATE_DEFAULT_MODEL = "opus"
-CURATE_DEFAULT_MAX_USD = "2.00"
 
 # Below this the CLI accepts an invalid --json-schema silently and returns
 # unstructured text, which is indistinguishable from a model that ignored the
@@ -463,7 +461,6 @@ def build_claude_command(
     claude_bin: str,
     *,
     model: Optional[str],
-    max_budget_usd: str,
     home: Optional[str] = None,
 ) -> List[str]:
     """The child invocation.
@@ -477,6 +474,14 @@ def build_claude_command(
     The tool set is not restricted: no `--tools`, no `--disallowedTools`, so
     `Bash` is reachable. See the README's security section.
 
+    No `--max-budget-usd` either. It used to be here (0.50 for a distillation)
+    as a runaway guard, and it made every single run fail: the evidence window
+    alone is up to 200k characters, so the child blew past the ceiling while
+    still reading its own prompt — measured at $1.15 across two turns on a
+    105-row transcript. A ceiling that no successful run can stay under is not
+    a guard, it is an outage that bills you. `COMMAND_TIMEOUT_SECONDS` still
+    bounds a runaway child by wall clock.
+
     The prompt is still NOT passed positionally: it goes on stdin, which also
     keeps it out of the process argument list.
     """
@@ -488,8 +493,6 @@ def build_claude_command(
         json.dumps(RESULT_SCHEMA, ensure_ascii=False, sort_keys=True),
         "--model",
         model or DEFAULT_MODEL,
-        "--max-budget-usd",
-        str(max_budget_usd),
         "--no-session-persistence",
         "--setting-sources",
         "",
@@ -1280,6 +1283,31 @@ def _cleanup_inactive_workspaces(queue: DistillQueue, run_dir: Path) -> None:
 # --------------------------------------------------------------------------
 
 
+def _envelope_reason(stdout: str) -> str:
+    """The CLI's own terminal status from a failed run — safe to persist.
+
+    Reads ONLY fixed, enum-like fields the CLI writes about itself
+    (`subtype`, `terminal_reason`). The child's `result` prose is deliberately
+    not touched: it can quote the transcript it was given, and job records are
+    kept indefinitely.
+
+    Returns "" when the output is not a JSON envelope, which is itself the
+    common case for a crash — the caller then reports the exit status alone.
+    """
+    try:
+        envelope = json.loads((stdout or "").strip() or "{}")
+    except Exception:
+        return ""
+    if not isinstance(envelope, dict):
+        return ""
+    parts = [
+        str(envelope.get(key))
+        for key in ("subtype", "terminal_reason")
+        if envelope.get(key)
+    ]
+    return " / ".join(parts)[:120]
+
+
 def parse_child_result(stdout: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """(result, error). Prefers `structured_output`, falls back to `result` text."""
     try:
@@ -1528,20 +1556,17 @@ def _run_job(
     curating = is_curate_job(job)
     if curating:
         # Judgement work over the whole library, and it archives things — so it
-        # gets the stronger default and a bigger cap than a distillation. An
-        # explicit per-job model still wins over both.
+        # gets the stronger default. An explicit per-job model still wins.
         model = str(
             job.get("model") or os.environ.get("SIS_CURATE_MODEL") or CURATE_DEFAULT_MODEL
         ).strip() or None
-        budget = os.environ.get("SIS_CURATE_MAX_USD") or CURATE_DEFAULT_MAX_USD
     else:
         model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
-        budget = os.environ.get("SIS_DISTILL_MAX_USD") or DEFAULT_MAX_USD
 
     if cli_version_used:
         queue.set_cli_version(job_id, owner, cli_version_used)
 
-    command = build_claude_command(claude_bin, model=model, max_budget_usd=budget)
+    command = build_claude_command(claude_bin, model=model)
     prompt = build_curate_prompt(job) if curating else build_prompt(job, evidence)
     deadline = time.monotonic() + COMMAND_TIMEOUT_SECONDS
 
@@ -1617,15 +1642,41 @@ def _run_job(
             )
             _release_baseline(baseline_dir)
             return {"job_id": job_id, "status": "blocked", "reason": "invalid_schema"}
+        # Never persist the child's prose output: it can echo transcript
+        # evidence. The envelope's own status fields can't — they are the CLI's
+        # vocabulary, not the session's — and without them a failure is
+        # undiagnosable. Eleven real failures read only "exited with status 1";
+        # the actual cause (a budget ceiling) was only found by re-running the
+        # child by hand and capturing stdout that the worker had thrown away.
+        reason = _envelope_reason(result.stdout)
+        if "budget" in reason:
+            # A spend ceiling stops the run at the same place every time, so a
+            # retry only re-bills it. The parse path below has always blocked
+            # this, but the real CLI exits NON-ZERO on a budget stop and never
+            # reaches it — which is how three attempts per job went out the
+            # door. This plugin no longer sets a ceiling; one reaching here
+            # came from the CLI's own configuration.
+            queue.block(
+                job_id,
+                owner,
+                code="budget_exhausted",
+                message="the child hit a --max-budget-usd ceiling set outside this plugin",
+            )
+            _release_baseline(baseline_dir)
+            return {
+                "job_id": job_id, "status": "blocked",
+                "reason": "budget_exhausted", "reverted": reverted,
+            }
         outcome = queue.fail(
             job_id,
             owner,
             code="timeout" if result.timed_out else "child_failed",
-            # Never persist child output: it can echo transcript evidence.
             message=(
                 "distillation exceeded {0}s".format(COMMAND_TIMEOUT_SECONDS)
                 if result.timed_out
-                else "claude exited with status {0}".format(result.returncode)
+                else "claude exited with status {0}{1}".format(
+                    result.returncode, " ({0})".format(reason) if reason else ""
+                )
             ),
         )
         _release_baseline(baseline_dir)
@@ -1639,7 +1690,9 @@ def _run_job(
                 job_id,
                 owner,
                 code="budget_exhausted",
-                message="the run hit its --max-budget-usd ceiling (SIS_DISTILL_MAX_USD)",
+                # This plugin no longer passes --max-budget-usd, so reaching
+                # here means a ceiling came from the CLI's own configuration.
+                message="the child hit a --max-budget-usd ceiling set outside this plugin",
             )
             _release_baseline(baseline_dir)
             return {"job_id": job_id, "status": "blocked", "reason": "budget_exhausted"}

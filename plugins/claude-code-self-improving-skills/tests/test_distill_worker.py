@@ -188,8 +188,7 @@ def test_a_transcript_containing_a_boundary_string_still_gets_a_unique_one(worke
 def test_the_child_command_uses_the_schema_not_a_custom_agent(worker):
     # A custom agent (--agent) silences --json-schema, so the run returns
     # markdown instead of structured_output. Confirmed against real claude.
-    command = worker.build_claude_command(
-        "/bin/claude", model="sonnet", max_budget_usd="0.5", home="/home/me")
+    command = worker.build_claude_command("/bin/claude", model="sonnet", home="/home/me")
     assert "--agent" not in command
     assert "--plugin-dir" not in command
     assert "--json-schema" in command
@@ -218,11 +217,21 @@ def test_the_child_runs_with_no_tool_restriction(worker):
     `--disallowedTools Bash`, so an injected instruction in the transcript had
     no route to command execution. Both flags are gone.
     """
-    command = worker.build_claude_command("/bin/claude", model=None, max_budget_usd="0.5")
+    command = worker.build_claude_command("/bin/claude", model=None)
     assert "--disallowedTools" not in command
     assert "--tools" not in command
     # bypassPermissions is still what lets it write into ~/.claude at all.
     assert "bypassPermissions" in command
+
+
+def test_no_spend_ceiling_is_imposed_on_the_child(worker):
+    """`--max-budget-usd 0.50` used to be here as a runaway guard and made every
+    run fail: the evidence window alone is up to 200k characters, so the child
+    blew the ceiling while still reading its prompt ($1.15 over two turns on a
+    105-row transcript, measured). A ceiling no successful run can stay under
+    bills you for nothing. The wall-clock timeout is the remaining bound."""
+    command = worker.build_claude_command("/bin/claude", model=None)
+    assert "--max-budget-usd" not in command
 
 
 # --- end-to-end job outcomes ------------------------------------------------
@@ -261,10 +270,20 @@ def test_an_expired_session_blocks_rather_than_retrying(worker, queue, tmp_path)
 
 
 def test_hitting_the_budget_ceiling_blocks_rather_than_retrying(worker, queue, tmp_path):
+    """A ceiling can still arrive from the CLI's own config even though this
+    plugin no longer passes one, and retrying just stops at the same place.
+
+    The real CLI exits NON-ZERO on a budget stop — this fixture used to exit 0,
+    which sent the run down the parse path where the block lives and made the
+    test pass while the production path silently retried three times. Eleven
+    real jobs burned ~$16 that way. Keep the exit status here at 1.
+    """
     claude = _fake_claude(tmp_path, textwrap.dedent("""\
-        import json
+        import json, sys
         print(json.dumps({"type": "result", "subtype": "error_max_budget_usd",
-                          "is_error": True, "result": "over budget"}))
+                          "is_error": True, "terminal_reason": "budget_exhausted",
+                          "result": "over budget"}))
+        sys.exit(1)
         """))
     transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
     _enqueue(queue, transcript, 2)
@@ -534,15 +553,14 @@ def test_the_curation_prompt_states_the_size_ceiling(worker, queue, tmp_path):
     assert "90,000" in prompt
 
 
-def test_a_curation_job_uses_the_stronger_default_model_and_cap(worker, queue, tmp_path):
+def test_a_curation_job_uses_the_stronger_default_model(worker, queue, tmp_path):
     _enqueue_curate(queue)
     _run(worker, queue, _capturing_claude(tmp_path))
     argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
     assert argv[argv.index("--model") + 1] == worker.CURATE_DEFAULT_MODEL
-    assert argv[argv.index("--max-budget-usd") + 1] == worker.CURATE_DEFAULT_MAX_USD
 
 
-def test_a_distillation_job_keeps_its_own_model_and_cap(worker, queue, tmp_path):
+def test_a_distillation_job_keeps_its_own_model(worker, queue, tmp_path):
     """Regression guard: adding the curation branch must not move the default
     distillation onto the more expensive tier."""
     transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
@@ -550,7 +568,6 @@ def test_a_distillation_job_keeps_its_own_model_and_cap(worker, queue, tmp_path)
     _run(worker, queue, _capturing_claude(tmp_path))
     argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
     assert argv[argv.index("--model") + 1] == worker.DEFAULT_MODEL
-    assert argv[argv.index("--max-budget-usd") + 1] == worker.DEFAULT_MAX_USD
 
 
 def test_an_explicit_curation_model_override_wins(worker, queue, tmp_path, monkeypatch):

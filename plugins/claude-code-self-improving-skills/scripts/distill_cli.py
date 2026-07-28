@@ -48,7 +48,10 @@ REMEDIES = {
         "the guard saw a change it could not guarantee a rollback for — inspect "
         "the paths below before retrying"
     ),
-    "budget_exhausted": "raise SIS_DISTILL_MAX_USD, then `retry --all-blocked`",
+    "budget_exhausted": (
+        "a spend ceiling stopped the child. This plugin no longer sets one — "
+        "check the CLI's own config, then `retry --all-blocked`"
+    ),
     "invalid_schema": "plugin bug: the result schema was rejected by the CLI",
 }
 
