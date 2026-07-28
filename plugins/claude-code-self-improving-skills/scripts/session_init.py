@@ -115,9 +115,13 @@ def _background_note():
             "/distill-status 로 경로를 확인하세요".format(
                 blocked_by_code["unprotected_write"]))
     if blocked_by_code.get("symlinked_skills"):
+        # No longer produced: the symlink refusal was removed. Jobs blocked by
+        # the old rule are still sitting in queues out there, and they retry
+        # cleanly now, so point at that instead of restating a rule that is gone.
         alerts.append(
-            "~/.claude/skills 에 심볼릭 링크된 스킬이 있어 백그라운드 증류가 "
-            "보류됐습니다 — 링크를 통한 쓰기는 되돌릴 수 없습니다")
+            "심볼릭 링크 때문에 보류됐던 증류 작업 {0}건이 있습니다 — 이 제한은 "
+            "없어졌으니 /distill-status retry 로 재시도하세요".format(
+                blocked_by_code["symlinked_skills"]))
     other_blocked = sum(
         count for code, count in blocked_by_code.items()
         if code not in ("authentication_required", "unprotected_write", "symlinked_skills"))

@@ -323,7 +323,15 @@ def test_provenance_is_stamped_on_installed_skills(guard, sandbox):
 
 # --- write-root enforcement -------------------------------------------------
 
-def test_a_symlinked_skill_is_reported_as_unprotected(guard, sandbox, tmp_path):
+def test_a_symlinked_skill_does_not_fail_the_run(guard, sandbox, tmp_path):
+    """A link must not turn into a blocking verdict.
+
+    `unprotected` is checked on every outcome in the worker, so putting links
+    there failed every job as long as one existed anywhere under the tree. The
+    guard stays silent about them instead: a write through a link is outside
+    the snapshot and is not reverted — that is the trade — and which links
+    exist is answered by `symlinked_entries()` off the live tree.
+    """
     outside = tmp_path / "outside"
     outside.mkdir()
     _write(outside / "SKILL.md", GOOD.format("escapee"))
@@ -333,9 +341,22 @@ def test_a_symlinked_skill_is_reported_as_unprotected(guard, sandbox, tmp_path):
     _write(outside / "SKILL.md", GOOD.format("escapee") + "\nchanged\n")
     report = guard.verify(before)
     # Following the link would let it pull arbitrary files into the snapshot,
-    # so the guard says plainly that it cannot cover this one.
+    # so the guard cannot cover this one either way.
     assert report["installed"] == []
-    assert str(link) in report["unprotected"]
+    assert "unprotected" not in report
+    assert "symlinked" not in report
+
+
+def test_symlinked_entries_reports_links_from_the_live_tree(guard, sandbox,
+                                                            tmp_path):
+    """The replacement for the per-run list: asked at call time, never stale."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = sandbox.skills / "escapee"
+    link.symlink_to(outside, target_is_directory=True)
+    assert guard.symlinked_entries(str(sandbox.skills)) == [str(link)]
+    link.unlink()
+    assert guard.symlinked_entries(str(sandbox.skills)) == []
 
 
 # --- shared path rules ------------------------------------------------------
