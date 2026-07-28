@@ -381,3 +381,65 @@ def test_only_the_personal_tree_counts_as_a_write_root(sandbox):
     assert skill_paths.is_learned_skill(str(project)) is True
     assert skill_paths.is_personal_skill(str(personal)) is True
     assert skill_paths.is_personal_skill(str(project)) is False
+
+
+# --- archive moves (the curator's job, not a lost skill) ---------------------
+
+def _archive_move(sandbox, name):
+    """What curator_transitions.archive does: move the dir under .archive/."""
+    import shutil
+    dest = sandbox.skills / ".archive"
+    dest.mkdir(exist_ok=True)
+    shutil.move(str(sandbox.skills / name), str(dest / name))
+
+
+def test_an_archived_skill_is_not_restored(guard, sandbox):
+    """A consolidation pass archives what it merged away. Reverting that leaves
+    the skill in BOTH places — observed on the first real run, which ended with
+    a live copy and an archived copy of the same bytes."""
+    sandbox.make_skill("absorbed", GOOD.format("absorbed"))
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _archive_move(sandbox, "absorbed")
+    report = guard.verify(before)
+    assert report["rolled_back"] == []
+    assert [item["name"] for item in report.get("archived", [])] == ["absorbed"]
+    assert not (sandbox.skills / "absorbed").exists()
+    assert (sandbox.skills / ".archive" / "absorbed" / "SKILL.md").is_file()
+
+
+def test_a_skill_archived_with_its_support_files_is_not_restored(guard, sandbox):
+    """The whole package moves; references/ must travel with its SKILL.md and
+    not come back as an orphan the owning-skill check then reverts again."""
+    sandbox.make_skill("packaged", GOOD.format("packaged"))
+    _write(sandbox.skills / "packaged" / "references" / "notes.md", "detail\n")
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    _archive_move(sandbox, "packaged")
+    report = guard.verify(before)
+    assert report["rolled_back"] == []
+    assert not (sandbox.skills / "packaged").exists()
+    assert (sandbox.skills / ".archive" / "packaged" / "references" / "notes.md").is_file()
+
+
+def test_a_plain_deletion_is_still_restored(guard, sandbox):
+    """The protection this weakens must stay intact: a run that simply removes
+    a skill leaves no archived twin, so it is still reverted."""
+    sandbox.make_skill("victim", GOOD.format("victim"))
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    import shutil
+    shutil.rmtree(sandbox.skills / "victim")
+    report = guard.verify(before)
+    assert [item["reason"] for item in report["rolled_back"]] == ["deleted"]
+    assert (sandbox.skills / "victim" / "SKILL.md").is_file()
+
+
+def test_an_archive_copy_with_different_content_does_not_excuse_a_deletion(guard, sandbox):
+    """Matching is on bytes, not on name — otherwise a child could delete a
+    skill and drop an unrelated file at the archived path to launder it."""
+    import shutil
+    sandbox.make_skill("target", GOOD.format("target"))
+    before = guard.snapshot(str(sandbox.skills), str(sandbox.home))
+    shutil.rmtree(sandbox.skills / "target")
+    _write(sandbox.skills / ".archive" / "target" / "SKILL.md", GOOD.format("target") + "\nDIFFERENT\n")
+    report = guard.verify(before)
+    assert [item["reason"] for item in report["rolled_back"]] == ["deleted"]
+    assert (sandbox.skills / "target" / "SKILL.md").is_file()

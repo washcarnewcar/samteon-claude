@@ -413,8 +413,47 @@ def verify(before: Snapshot) -> Dict[str, Any]:
         else:
             unprotected.append(path)
 
+    # An archive move looks exactly like a deletion from the live tree PLUS an
+    # identical file appearing under `.archive/` — and `.archive/` is inside the
+    # snapshot on purpose. Reverting that half-move leaves the skill in BOTH
+    # places. Observed on the first real consolidation run: the pass archived a
+    # merged-away skill, the guard restored the original, and the library ended
+    # up with a live copy and an archived copy of the same bytes.
+    #
+    # Matching on content, not on path, is what keeps the protection intact: a
+    # child that simply deletes a skill produces no archived twin and is still
+    # reverted. Only a move whose bytes landed in the archive is honoured.
+    archive_root = os.path.join(root, ".archive") + os.sep
+    archive_arrivals = {
+        path: digest
+        for path, digest in after.files.items()
+        if path.startswith(archive_root)
+        and path not in before.files
+        and digest != "unreadable"
+    }
+    arrival_digests = set(archive_arrivals.values())
+    archived: List[Dict[str, str]] = []
+    moved_digests = set()
+
     for path in removed:
+        digest = before.files.get(path)
+        if digest and digest != "unreadable" and digest in arrival_digests:
+            archived.append({"name": skill_paths.skill_name(path), "path": path})
+            moved_digests.add(digest)
+            continue
         restore(path, existed=True, reason="deleted")
+
+    # The arrival side of an accepted move is the SAME bytes, relocated — not
+    # new content the run authored. Judging it again would reject it: an
+    # archived SKILL.md would be reported as a freshly installed skill, and its
+    # `references/` would be reverted as an orphan whose owning skill "isn't
+    # valid". Both were observed on the first real consolidation run.
+    if moved_digests:
+        changed = [
+            path
+            for path in changed
+            if not (path in archive_arrivals and archive_arrivals[path] in moved_digests)
+        ]
 
     # Decide each skill from its SKILL.md first, so its assets can follow it.
     rejected_skills: Dict[str, str] = {}
@@ -491,6 +530,8 @@ def verify(before: Snapshot) -> Dict[str, Any]:
         "rolled_back": rolled_back,
         "out_of_scope_writes": sorted(out_of_scope),
     }
+    if archived:
+        report["archived"] = archived
     if unprotected:
         report["unprotected"] = sorted(set(unprotected))
     return report

@@ -1797,6 +1797,10 @@ def _merge_guard(
         merged["rolled_back"] = [
             "{0}: {1}".format(item["name"], item["reason"]) for item in guard["rolled_back"]
         ]
+    if guard.get("archived"):
+        # A consolidation pass archives what it merged away; surfacing it keeps
+        # the job record honest about what left the live tree.
+        merged["archived"] = sorted({item["name"] for item in guard["archived"]})
     if guard["out_of_scope_writes"]:
         merged["out_of_scope_writes"] = guard["out_of_scope_writes"]
     # Kept separate from out_of_scope_writes on purpose: "something changed
@@ -1807,7 +1811,13 @@ def _merge_guard(
     accepted_assets = guard.get("assets") or []
     if accepted_assets:
         merged["assets"] = accepted_assets
-    if not merged["skills"] and not accepted_assets and merged["status"] == "changed":
+    if (
+        not merged["skills"]
+        and not accepted_assets
+        # A pass that only archived things changed the library too.
+        and not merged.get("archived")
+        and merged["status"] == "changed"
+    ):
         merged["status"] = "nothing_to_save"
         merged["summary"] = (
             "The run reported changes but nothing survived validation. "
