@@ -272,12 +272,68 @@ def _run_curator(state, lines):
             lines.append(
                 "[큐레이터] 미사용 스킬 자동 정리 실행: stale {0}개, 아카이브 {1}개, 재활성화 {2}개. "
                 "아카이브된 스킬은 ~/.claude/skills/.archive/ 로 이동(삭제 아님, /restore-skill 로 복구). "
-                "세부 리포트는 ~/.claude/self-improve/logs/curator/. "
-                "중복 스킬의 의미 기반 통합이 필요하면 /curate-skills 를 실행하세요.".format(ns, na, nr)
+                "세부 리포트는 ~/.claude/self-improve/logs/curator/.".format(ns, na, nr)
             )
         else:
             lines.append("[큐레이터] 정기 점검 완료 — 정리할 미사용 스킬이 없습니다.")
     _write_curator_state(state)
+
+
+def _enqueue_curation(lines):
+    """Hand the semantic consolidation pass to the background worker.
+
+    The time-based transitions above are deterministic, so they run inline.
+    Deciding that five narrow skills are really one — reading them and writing
+    the umbrella — is judgement work that needs a model, and doing it inline
+    would block the session start it was triggered from. So it goes on the same
+    queue the Stop hook uses, with `trigger=curate`.
+
+    Best-effort by construction: every failure path falls through to the manual
+    pointer rather than raising, because a SessionStart hook must never be the
+    reason a session doesn't start.
+    """
+    if (os.environ.get("SIS_AUTO_CURATE") or "").strip() == "0":
+        lines.append("[큐레이터] 자동 통합은 꺼져 있습니다(SIS_AUTO_CURATE=0). "
+                     "직접 정리하려면 /curate-skills 를 실행하세요.")
+        return
+    queued_id = None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import distill_queue
+        import distill_worker
+
+        if distill_worker.discover_claude():
+            queue = distill_queue.DistillQueue()
+            result = queue.enqueue(
+                session_id="curator",
+                # One consolidation per UTC day at most: the queue keys
+                # (session_id, prompt_id) uniquely, so parallel session starts
+                # on the same day collapse to a single job instead of racing
+                # several children over the same skill tree.
+                prompt_id="curate-{0}".format(time.strftime("%Y%m%d", time.gmtime())),
+                transcript_path="",
+                transcript_rows=0,
+                signal=False,
+                signal_source="session_start",
+                trigger=distill_worker.CURATE_TRIGGER,
+            )
+            queued_id = result.get("job_id")
+            if queued_id:
+                try:
+                    distill_worker.launch_detached()
+                except Exception:
+                    # The job is durable; the next SessionStart relaunches it.
+                    pass
+    except Exception:
+        queued_id = None
+
+    if queued_id:
+        lines.append(
+            "[큐레이터] 중복 스킬 통합 패스를 백그라운드에 맡겼습니다 — 이 대화는 그대로 진행하시면 "
+            "됩니다. 결과는 다음 세션 시작 시 보고되고, 되돌리려면 /curator-rollback 을 쓰세요."
+        )
+    else:
+        lines.append("[큐레이터] 중복 스킬의 의미 기반 통합이 필요하면 /curate-skills 를 실행하세요.")
 
 
 def main():
@@ -341,6 +397,11 @@ def main():
             _write_curator_state({"last_run": time.time(), "run_count": 0})
         elif status == "due":
             _run_curator(_read_curator_state(), lines)
+            if background:
+                # Only in background mode: foreground/off means the user opted
+                # out of this plugin spawning child sessions, and a consolidation
+                # pass is exactly that.
+                _enqueue_curation(lines)
     except Exception:
         pass
 

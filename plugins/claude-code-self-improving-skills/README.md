@@ -17,7 +17,8 @@
 
 - **TELEMETRY** (v0.2.0) — `Stop` 훅이 transcript에서 학습 스킬의 **사용 빈도를 추적**: `Skill` 호출→use, SKILL.md `Read`→view, `Write/Edit`→patch. `~/.claude/self-improve/skill_usage.json`에 use/view/patch 카운트 + 마지막 사용 시각 + `created_at` + `created_by`(agent/user)를 기록(atomic+flock, 세션별 offset으로 중복 방지). 이게 큐레이터가 "실제 안 쓰는 스킬"을 식별하는 데이터 기반입니다.
 - **VALIDATE + 트랜잭션 편집** (v0.5.0) — `PreToolUse` 훅이 학습 SKILL.md를 편집 **직전에 백업**하고, `PostToolUse` 훅이 편집 후 frontmatter·크기를 검증. 편집이 구조를 깨뜨리면 **백업에서 자동 롤백**(Hermes `_patch_skill`의 backup→re-validate→rollback 이식)하고 모델에 다시 시도하도록 알림. 정상 편집은 무간섭. 처음 만들어진 학습 스킬엔 `metadata.provenance` 자동 부착 + usage 레코드 시딩(티어링: distiller=agent, 사용자 직접=user).
-- **CURATE** (v0.3.0) — **시간기반 미사용 스킬 자동 정리**. `SessionStart` 훅이 큐레이션 주기(기본 7일)가 됐는지 확인하고, 됐으면 `curator_transitions.py`를 **인라인 자동 실행**: 마지막 활동(use/view/patch) 기준 **30일 미사용→stale, 90일→archive**(`.archive/` 로 이동, 삭제 아님). 변경 전 tar.gz 스냅샷을 뜨고, 다시 쓰이면 stale→active로 재활성화. **pin된 스킬과 사용자 작성(`created_by:user`) 스킬은 절대 건드리지 않음.** 의미 기반 중복 통합은 `/curate-skills`(LLM, 병합 시 `absorbed_into` 기록)가 담당. 수동 제어 커맨드: `/curator-status`(상태·통계), `/prune-skills`(N일 미사용 일괄, dry-run), `/archive-skill`(단일), `/pin-skill`(보호), `/restore-skill`(복구), `/curator-rollback`(스냅샷 전체 롤백 — usage 메타 포함, 롤백도 언두 가능).
+- **CURATE** (v0.3.0) — **시간기반 미사용 스킬 자동 정리**. `SessionStart` 훅이 큐레이션 주기(기본 7일)가 됐는지 확인하고, 됐으면 `curator_transitions.py`를 **인라인 자동 실행**: 마지막 활동(use/view/patch) 기준 **30일 미사용→stale, 90일→archive**(`.archive/` 로 이동, 삭제 아님). 변경 전 tar.gz 스냅샷을 뜨고, 다시 쓰이면 stale→active로 재활성화. **pin된 스킬과 사용자 작성(`created_by:user`) 스킬은 절대 건드리지 않음.** 의미 기반 중복 통합은 v0.17.0부터 백그라운드 자동 실행(아래 AUTO-CURATE), 수동 실행은 `/curate-skills`(병합 시 `absorbed_into` 기록). 수동 제어 커맨드: `/curator-status`(상태·통계), `/prune-skills`(N일 미사용 일괄, dry-run), `/archive-skill`(단일), `/pin-skill`(보호), `/restore-skill`(복구), `/curator-rollback`(스냅샷 전체 롤백 — usage 메타 포함, 롤백도 언두 가능).
+- **AUTO-CURATE** (v0.17.0) — **의미 기반 통합도 백그라운드 자동 실행**. 지금까지 큐레이션은 두 층으로 갈라져 있었습니다: 시간 기반 전이(stale/archive)는 자동, 의미 기반 통합은 사용자가 `/curate-skills`를 직접 쳐야 하는 수동. 후자는 판단이 필요해 훅에서 인라인으로 돌 수 없었기 때문인데, 백그라운드 증류가 쓰는 `claude -p` 인프라를 그대로 재사용하면 됩니다. 큐레이션 주기가 됐을 때 `SessionStart` 훅이 시간 전이를 인라인 실행한 뒤, **통합 패스를 같은 큐에 `trigger=curate` 잡으로 얹습니다**(같은 baseline 스냅샷·롤백·가드를 그대로 받음). 결과는 다음 세션 시작 시 보고되고 `/curator-rollback` 으로 통째로 되돌릴 수 있습니다. 잡은 UTC 하루 1건으로 dedupe되어 세션을 여러 개 동시에 열어도 자식이 스킬 트리를 두고 경합하지 않습니다. 끄려면 `SIS_AUTO_CURATE=0`. 통합은 판단·합성 작업이라 기본 모델이 증류(`sonnet`)보다 높은 `opus`이고 잡당 상한도 `2.00`으로 별도입니다. 무인 실행이라 프롬프트는 보수적으로 지시합니다 — 서로를 인용하거나 한 작업의 여러 단면인 클러스터만 병합하고, 도메인만 겹치는 것은 넘어가며, 합계가 검증기 상한(100,000자)에 근접하는 묶음은 시도하지 않습니다. **아카이브 후 살아있는 스킬이 아카이브된 이름을 참조하고 있는지 grep으로 훑는 단계가 필수**입니다(첫 실전 패스에서 실제로 dangling 참조가 발생한 실패 모드).
 - **수동 트리거** — `/distill-skill` 로 언제든 증류를 직접 실행.
 - **MIGRATION** (v0.11.0) — 플러그인/마켓플레이스 **리네임 마이그레이션**. 2026-07 개편(`samton-claude`→`samton-plugins`, `self-improving-skills`→`claude-code-self-improving-skills` 등 4종)으로 orphan된 로컬 상태를 `/migration` 한 번으로 최신 이름에 올립니다: `~/.claude/settings.json`(permissions.allow 네임스페이스·enabledPlugins 키·stale marketplace URL), 학습 스킬 본문의 구 네임스페이스/경로 참조, `~/.codex/config.toml`, codex 상태 디렉토리·provenance. 기본 dry-run → 확인 후 `--apply`(파일별 백업, 멱등). rename 맵은 `scripts/migrate_local.py`에 데이터로 유지되어 향후 리네임에도 확장 가능. `provenance: self-improving-skills` 마커는 의도적으로 유지되는 값이라 건드리지 않습니다.
 - **HERMES SYNC** (v0.10.0) — Hermes 최신(v2026.7.1, 2026-07) 대조 재이식 14건. **distiller 프롬프트**: 이번 세션에 로드된(in-play) 스킬 최우선 패치 + 사용자 교정·좌절 표현을 1급 시그널로(태스크 결부 교정만 스킬에, 일반 선호는 네이티브 메모리 몫) + 세션 내 해소된 일시 오류 캡처 금지 + description 저장 전 자기검증 + "실행/관찰한 것만 기록" 환각 방지. **트리거**: 파일 편집 0회 조사·디버깅 구간도 증류 대상(`SIS_DISTILL_READONLY_THRESHOLD`). **큐레이터 안전장치**: `archive_one` fail-closed 가드(absorbed_into 실존·자기참조 검증, pinned/user 거부 — Hermes #29912 이식), pinned 스킬 자율 편집 자동 롤백, 타임스탬프 접미 아카이브 정확 복구(prefix 삼킴 금지 — Hermes 992b9223), 스냅샷에 usage 메타 수록 + `/curator-rollback`(롤백 자체도 언두 가능 — fc1119ca), `/curate-skills` 시각 기록을 검토 시작 시점으로 이동(`mark-curated`, nag 루프 차단) + 구조화 결과 기록(consolidations.yaml). **현대화**: SessionStart 상시 주입 축소(~10줄→~4줄, 권한 복구는 차단 발생 지점으로 이동), `SIS_DISTILLER_MODEL` 비용 라우팅 opt-in.
@@ -47,7 +48,6 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 | `SIS_REVIEW_MODE` | `background` | `background`(별도 프로세스, 메인 턴 무출력·무과금) / `foreground`(기존 nudge) / `off`. background 에서 CLI 미인증·미발견이면 자동으로 foreground 폴백 |
 | `SIS_CLAUDE_BIN` | 자동탐색 | `claude` 절대경로. GUI 로 뜬 훅은 PATH 에 `~/.local/bin` 이 없을 수 있어 필요할 때가 있음 |
 | `SIS_DISTILL_MAX_USD` | `0.50` | 증류 잡 1건의 `--max-budget-usd` 상한 |
-| `SIS_DISTILL_MAX_JOBS_PER_DAY` | `12` | 하루에 띄울 백그라운드 증류 세션 수 상한 |
 | `SIS_CORE_TOUCH_MIN_CALLS` | `6` | 코어 소스 편집(L1 권고)이 백그라운드 증류를 유발하려면 필요한 최소 도구 호출 수. 이게 없으면 이 리포에서 한 줄만 고쳐도 매 턴 세션이 뜸 |
 | `SIS_STATE_DIR` | `~/.claude/self-improve` | 큐·백업·텔레메트리를 전부 옮김 |
 | `SIS_DISTILL_THRESHOLD` | `12` | 증류 nudge를 띄울, 마지막 증류 이후 누적 도구 호출 수 |
@@ -56,6 +56,9 @@ skill-distiller 서브에이전트 (격리 컨텍스트)
 | `SIS_DISTILLER_MODEL` | (없음) | 설정 시(예: `sonnet`) nudge·/distill-skill 이 distiller 호출에 `model="<값>"` 파라미터를 포함하라고 안내 — per-invocation model 이 frontmatter 를 이기므로 **증류만** 저가 모델로 라우팅하는 opt-in (기본은 메인 모델 상속, `haiku` 값은 무시 — 서브에이전트 Haiku 금지 정책) |
 | `SIS_CURATE_MIN_SKILLS` | `8` | 자동 큐레이션을 시작하는 학습 스킬 수 |
 | `SIS_CURATE_INTERVAL_DAYS` | `7` | 큐레이터 자동 실행 간격(일) |
+| `SIS_AUTO_CURATE` | (없음) | `0` 으로 설정하면 **의미 기반 통합 패스의 백그라운드 자동 실행을 끔**(시간 기반 stale/archive 전이는 계속 동작). 끄면 SessionStart 가 `/curate-skills` 수동 실행을 안내 |
+| `SIS_CURATE_MODEL` | `opus` | 통합 패스 자식 세션의 모델. 라이브러리 전체를 읽고 무엇을 합칠지 판단하는 작업이라 증류(`sonnet`)보다 높게 잡음 |
+| `SIS_CURATE_MAX_USD` | `2.00` | 통합 잡 1건의 `--max-budget-usd` 상한. 스킬 수십 개를 읽으므로 증류 잡(`0.50`)보다 큼 |
 | `SIS_STALE_AFTER_DAYS` | `30` | 마지막 활동 후 이 일수 미사용 시 stale 마킹 |
 | `SIS_ARCHIVE_AFTER_DAYS` | `90` | 마지막 활동 후 이 일수 미사용 시 `.archive/` 로 이동 |
 | `SIS_PLUGIN_PR` | (없음) | `1` 로 설정하면 `/propose-plugin-improvement` 의 L2 자동 PR을 활성화. 미설정이면 코어 변경 L1 알림만 동작하고 PR은 만들지 않음 |
@@ -159,7 +162,7 @@ install -m 600 /dev/null ~/.claude/self-improve/worker.env
 
 ## 한계 (정직하게)
 
-- Hermes의 **무음 데몬 스레드**는 v0.13.0 의 백그라운드 모드로 대응물이 생겼습니다 — 메인 턴에 출력도 과금도 없습니다. 다만 **무료는 아닙니다**: 별도 `claude -p` 세션이므로 구독 사용량을 소모합니다. 잡당 상한은 `SIS_DISTILL_MAX_USD`(기본 0.50), 하루 상한은 `SIS_DISTILL_MAX_JOBS_PER_DAY`(기본 12)로 조절합니다.
+- Hermes의 **무음 데몬 스레드**는 v0.13.0 의 백그라운드 모드로 대응물이 생겼습니다 — 메인 턴에 출력도 과금도 없습니다. 다만 **무료는 아닙니다**: 별도 `claude -p` 세션이므로 구독 사용량을 소모합니다. 잡당 상한은 `SIS_DISTILL_MAX_USD`(증류, 기본 0.50)와 `SIS_CURATE_MAX_USD`(통합, 기본 2.00)로 조절합니다. v0.16.0 까지 있던 하루 상한(`SIS_DISTILL_MAX_JOBS_PER_DAY`, 기본 12건)은 **v0.17.0 에서 제거**했습니다 — 성공이 아니라 **시도**를 세는 장치라, 잡이 전부 실패한 날에도 할당량이 차서 그 다음 정상 작업을 조용히 거부했습니다(실측: 12/12 실패 후 폴백). 남은 천장은 잡당 예산과 트리거 자체(임계 + 편집 하한, 구간당 1회)입니다.
 - 증거는 **메인 transcript 만** 읽습니다. 서브에이전트 작업은 `subagents/` 하위 별도 파일이라 증류 근거에 포함되지 않습니다.
 - 프리픽스 캐시 상속, 런타임 ContextVar 기반 provenance도 이식 불가 → frontmatter 스탬프로 근사.
 - 크로스세션 FTS5 검색(Hermes의 RECALL)은 이 플러그인 범위 밖입니다. 필요하면 `remember` 플러그인(메모리 자율 캡처)과 함께 쓰는 것을 권장.

@@ -338,13 +338,15 @@ def _enqueue_background(payload, session_id, transcript_path, rows,
     except Exception:
         return False
 
-    # A day's worth of background sessions is real money, and the triggers were
-    # tuned for a nudge that costs nothing to ignore.
-    cap = _int_env("SIS_DISTILL_MAX_JOBS_PER_DAY", 12)
+    # NOTE(v0.17.0): a daily spawn cap used to sit here (12/day) as a runaway
+    # guard. It was removed because it counted ATTEMPTS, not successes — a day
+    # where every job failed still filled the quota and then silently refused
+    # the next healthy one, which is the opposite of what a guard should do.
+    # The real ceilings are per-job and still in force: `--max-budget-usd` on
+    # every child, and the triggers themselves (threshold + edit floor), which
+    # only fire once per segment of work.
     try:
         queue = distill_queue.DistillQueue()
-        if cap > 0 and queue.count_created_since(time.time() - 86400) >= cap:
-            return False
     except Exception:
         return False
 

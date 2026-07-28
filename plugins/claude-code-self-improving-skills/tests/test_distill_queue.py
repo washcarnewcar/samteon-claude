@@ -218,15 +218,6 @@ def test_cleanup_sweeps_settled_history_but_never_pending_or_blocked(queue):
     assert remaining == {"blocked", "pending"}
 
 
-def test_count_created_since_backs_the_daily_spawn_cap(queue):
-    _enqueue(queue, session="a", prompt="p1")
-    _enqueue(queue, session="b", prompt="p1")
-    assert queue.count_created_since(0) == 2
-    with queue._connect() as conn:
-        conn.execute("UPDATE distill_jobs SET created_at = 100 WHERE session_id = 'a'")
-    assert queue.count_created_since(200) == 1
-
-
 # --- result validation ------------------------------------------------------
 
 def test_validate_result_rejects_an_unknown_status():

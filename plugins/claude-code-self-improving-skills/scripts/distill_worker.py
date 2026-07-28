@@ -76,6 +76,16 @@ RUN_DIR_NAME = "distill-runs"
 DEFAULT_MODEL = "sonnet"
 DEFAULT_MAX_USD = "0.50"
 
+# A curation pass is a different job on the same rails: same queue, same
+# baseline/rollback, same result schema — only the prompt and the budget differ.
+# It reads the whole learned-skill library and decides what to merge, so it is
+# a judgement task (design trade-offs, synthesis across many inputs) rather
+# than the pattern-following work distillation is; hence a stronger default
+# model and a larger cap. Both stay overridable.
+CURATE_TRIGGER = "curate"
+CURATE_DEFAULT_MODEL = "opus"
+CURATE_DEFAULT_MAX_USD = "2.00"
+
 # Below this the CLI accepts an invalid --json-schema silently and returns
 # unstructured text, which is indistinguishable from a model that ignored the
 # schema. Refusing to run is better than guessing why every job "failed".
@@ -550,6 +560,109 @@ def build_prompt(job: Dict[str, Any], evidence: Evidence) -> str:
         "schema describes — no prose, no markdown, no explanation around it.\n\n"
         "BEGIN_{0}\n{2}\nEND_{0}\n"
     ).format(boundary, skills_root, payload)
+
+
+def is_curate_job(job: Dict[str, Any]) -> bool:
+    """A consolidation pass rather than a post-turn distillation."""
+    return str(job.get("trigger") or "") == CURATE_TRIGGER
+
+
+def build_curate_prompt(job: Dict[str, Any]) -> str:
+    """The unattended umbrella-consolidation pass.
+
+    No untrusted evidence goes in — the child reads the skill library itself,
+    which is both smaller in the prompt and always current. The boundary that
+    matters here is the opposite of distillation's: this job DELETES (archives)
+    skills, so the rules are about what it may not touch and what it must
+    verify after moving something.
+
+    The conservatism is deliberate. A human running /curate-skills sees the
+    plan before it is applied; nobody sees this one until it is done. So the
+    prompt asks for the merges whose evidence is in the skills themselves
+    (they cite each other, they came from one task) and tells it to leave the
+    merely-adjacent ones alone.
+    """
+    skills_root = skill_paths.personal_skills_root()
+    scripts_dir = os.path.dirname(os.path.abspath(__file__))
+    transitions = os.path.join(scripts_dir, "curator_transitions.py")
+    return (
+        "Run the plugin's skill-library curation as an unattended "
+        "umbrella-consolidation pass. Nobody will review a plan first, so "
+        "prefer doing nothing over doing something you are not sure about.\n\n"
+        "## What this is\n"
+        "The library at {0} accumulates one narrow skill per session. The goal "
+        "is a library of class-level skills: a broad umbrella with labelled "
+        "sub-sections is more discoverable than five narrow siblings, because "
+        "skills are matched on their description, not their name. Your job is "
+        "to find clusters that are genuinely ONE skill and merge them.\n\n"
+        "## Hard rules — violating any of these fails the run\n"
+        "- Touch ONLY skills whose usage record says `created_by: agent` AND "
+        "whose SKILL.md frontmatter carries `provenance: self-improving-skills`. "
+        "User-authored and third-party skills are off limits: no edit, no "
+        "archive, no absorption.\n"
+        "- Skip any skill with `pinned: true` entirely.\n"
+        "- NEVER delete. Archiving (which moves the directory to "
+        "{0}/.archive/) is the most destructive action available to you.\n"
+        "- Write only under {0}. Never touch a repository file, this plugin's "
+        "own source, or any configuration.\n"
+        "- `use_count` is NOT evidence. The counter is young and mostly zero; "
+        "`use=0` is absence of evidence, not evidence of worthlessness. Judge "
+        "overlap by CONTENT. (Time-based pruning is a separate mechanism that "
+        "already runs — it is not your job.)\n\n"
+        "## What to merge, and what to leave alone\n"
+        "Merge when the skills are one task's several stages — the strongest "
+        "signal is that they already cite each other, or describe the same "
+        "code/component from different angles. Ask: 'would a human maintainer "
+        "keep these as N skills, or as one skill with N labelled sections?'\n\n"
+        "Leave alone, this pass:\n"
+        "- clusters that merely share a domain or a tool while solving "
+        "unrelated problems;\n"
+        "- any group whose SKILL.md sizes SUM to more than 90,000 characters — "
+        "the validator rejects a skill over 100,000, so the merge would fail "
+        "or force you to drop content. Check the sizes BEFORE you start;\n"
+        "- skills whose descriptions explicitly disclaim each other ('Not X', "
+        "'this is the orthogonal concern') AND are large — that is a previous "
+        "deliberate split, not an accident.\n\n"
+        "## Procedure\n"
+        "1. Inventory: read each `{0}/*/SKILL.md` frontmatter (name, "
+        "description, provenance) and note each file's size. Read the usage "
+        "records at the plugin state dir's `skill_usage.json` for `created_by` "
+        "and `pinned`.\n"
+        "2. Pick clusters by the test above. If none qualifies, stop and "
+        "return `nothing_to_save` — that is a good outcome, not a failure.\n"
+        "3. For each cluster: write the umbrella SKILL.md first (either extend "
+        "the member that is already broad enough, or create a new one), "
+        "preserving every member's technical detail as a labelled section. "
+        "Deduplicate what the members repeated. The umbrella's `description` "
+        "must carry the trigger phrasing of ALL absorbed members — that is "
+        "what makes them findable. Keeping the triggers matters more than "
+        "hitting any length target.\n"
+        "4. Archive each absorbed member by running exactly:\n"
+        "   python3 {1} archive \"<absorbed-skill>\" \"<umbrella-skill>\"\n"
+        "   This records the umbrella in `absorbed_into`, so the merge stays "
+        "legible later. It refuses pinned and user-authored skills — if it "
+        "returns `ok: false`, respect that and move on; never pass --force.\n"
+        "5. MANDATORY after archiving: search the SURVIVING skills for the "
+        "names you just archived (`grep -rl '<archived-name>' {0} "
+        "--include=SKILL.md`, ignoring `.archive/`). A skill that referred to "
+        "an archived one by name now points at nothing — repoint each hit to "
+        "the umbrella. Skipping this leaves dangling cross-references, which "
+        "is the known failure mode of this pass.\n"
+        "6. Verify each umbrella still parses: `---` frontmatter with `name` "
+        "matching its directory and a non-empty `description` and body.\n\n"
+        "## Tools\n"
+        "`Bash` is permitted for exactly two things: the archive command in "
+        "step 4 and read-only inspection (grep/ls/wc) in steps 1 and 5. Do not "
+        "use it to move, delete, or otherwise modify files — the archive "
+        "command is the only mover. Use Read/Write/Edit for skill content.\n\n"
+        "## Result\n"
+        "Your final message must be ONLY the structured result the output "
+        "schema describes. Report every skill you touched in `skills`: the "
+        "umbrella with an action like 'umbrella extended, absorbed 3', and "
+        "each absorbed member with 'absorbed into <umbrella>'. Put the cluster "
+        "reasoning in `summary`. Use status `changed` if anything moved, "
+        "`nothing_to_save` if you deliberately merged nothing.\n"
+    ).format(skills_root, transitions)
 
 
 def child_environment(base: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -1247,13 +1360,19 @@ def process_job(
         queue.block(job_id, owner, code=code, message=message)
         return {"job_id": job_id, "status": "blocked", "reason": code}
 
-    try:
-        evidence = read_evidence(
-            str(job.get("transcript_path") or ""), int(job.get("transcript_rows") or 0)
-        )
-    except TranscriptError as exc:
-        queue.block(job_id, owner, code="unusable_transcript", message=str(exc))
-        return {"job_id": job_id, "status": "blocked", "reason": "unusable_transcript"}
+    if is_curate_job(job):
+        # A curation pass has no transcript to stand on — it reads the skill
+        # library directly. Going through read_evidence would block the job on
+        # the empty path it was enqueued with.
+        evidence = Evidence(text="", rows=0, cwd=str(job.get("cwd") or "") or None)
+    else:
+        try:
+            evidence = read_evidence(
+                str(job.get("transcript_path") or ""), int(job.get("transcript_rows") or 0)
+            )
+        except TranscriptError as exc:
+            queue.block(job_id, owner, code="unusable_transcript", message=str(exc))
+            return {"job_id": job_id, "status": "blocked", "reason": "unusable_transcript"}
 
     try:
         run_dir = _secure_run_dir(queue)
@@ -1406,14 +1525,24 @@ def _run_job(
     cli_version_used: Optional[str],
 ) -> Dict[str, Any]:
     job_id = int(job["id"])
-    model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
-    budget = os.environ.get("SIS_DISTILL_MAX_USD") or DEFAULT_MAX_USD
+    curating = is_curate_job(job)
+    if curating:
+        # Judgement work over the whole library, and it archives things — so it
+        # gets the stronger default and a bigger cap than a distillation. An
+        # explicit per-job model still wins over both.
+        model = str(
+            job.get("model") or os.environ.get("SIS_CURATE_MODEL") or CURATE_DEFAULT_MODEL
+        ).strip() or None
+        budget = os.environ.get("SIS_CURATE_MAX_USD") or CURATE_DEFAULT_MAX_USD
+    else:
+        model = str(job.get("model") or os.environ.get("SIS_DISTILLER_MODEL") or "").strip() or None
+        budget = os.environ.get("SIS_DISTILL_MAX_USD") or DEFAULT_MAX_USD
 
     if cli_version_used:
         queue.set_cli_version(job_id, owner, cli_version_used)
 
     command = build_claude_command(claude_bin, model=model, max_budget_usd=budget)
-    prompt = build_prompt(job, evidence)
+    prompt = build_curate_prompt(job) if curating else build_prompt(job, evidence)
     deadline = time.monotonic() + COMMAND_TIMEOUT_SECONDS
 
     def heartbeat() -> bool:

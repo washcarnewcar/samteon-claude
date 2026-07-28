@@ -466,3 +466,106 @@ def test_only_credential_keys_are_read_from_the_worker_env_file(worker, sandbox)
     env = worker.child_environment({"PATH": "/usr/bin"})
     assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "tok"
     assert env["PATH"] == "/usr/bin"
+
+
+# --- curation jobs ----------------------------------------------------------
+
+# Captures what the child was actually invoked with, so the tests can assert on
+# the prompt and the CLI flags instead of trusting the branch by inspection.
+CAPTURE = """
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+open(os.path.join(here, "prompt.txt"), "w", encoding="utf-8").write(_stdin)
+open(os.path.join(here, "argv.txt"), "w", encoding="utf-8").write("\\n".join(args))
+print(json.dumps({"type": "result", "is_error": False, "subtype": "success",
+                  "structured_output": {"status": "nothing_to_save", "skills": [],
+                                        "candidates": [], "summary": "nothing"}}))
+"""
+
+
+def _capturing_claude(tmp_path):
+    return _fake_claude(tmp_path, "import json, os\n" + CAPTURE)
+
+
+def _enqueue_curate(queue):
+    """A consolidation job as session_init enqueues it: no transcript at all."""
+    return queue.enqueue(
+        session_id="curator", prompt_id="curate-20260728", transcript_path="",
+        transcript_rows=0, signal=False, signal_source="session_start",
+        trigger="curate")
+
+
+def test_a_curation_job_runs_without_a_transcript(worker, queue, tmp_path):
+    """It reads the skill library itself, so the empty transcript path it is
+    enqueued with must not block it the way a distillation would."""
+    _enqueue_curate(queue)
+    result = _run(worker, queue, _capturing_claude(tmp_path))
+    assert result["processed"] == 1
+    job = queue.list_jobs()[0]
+    assert job["status"] == "done", job.get("error_code")
+
+
+def test_a_curation_job_gets_the_consolidation_prompt(worker, queue, tmp_path):
+    _enqueue_curate(queue)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    prompt = (tmp_path / "prompt.txt").read_text(encoding="utf-8")
+    assert "umbrella-consolidation pass" in prompt
+    # The distillation prompt's untrusted-evidence envelope has no business
+    # here — there is no transcript to quote.
+    assert "BEGIN_SIS_UNTRUSTED_EVIDENCE" not in prompt
+
+
+def test_the_curation_prompt_requires_the_back_reference_sweep(worker, queue, tmp_path):
+    """Archiving a skill leaves any sibling that named it pointing at nothing.
+    That is the failure this pass produced on its first real run, so the
+    instruction to sweep for it is load-bearing, not decorative."""
+    _enqueue_curate(queue)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    prompt = (tmp_path / "prompt.txt").read_text(encoding="utf-8")
+    assert "MANDATORY after archiving" in prompt
+    assert "grep -rl" in prompt
+
+
+def test_the_curation_prompt_states_the_size_ceiling(worker, queue, tmp_path):
+    """A merge whose members sum past the validator's cap cannot land, so the
+    child has to check sizes before it starts rewriting."""
+    _enqueue_curate(queue)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    prompt = (tmp_path / "prompt.txt").read_text(encoding="utf-8")
+    assert "90,000" in prompt
+
+
+def test_a_curation_job_uses_the_stronger_default_model_and_cap(worker, queue, tmp_path):
+    _enqueue_curate(queue)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
+    assert argv[argv.index("--model") + 1] == worker.CURATE_DEFAULT_MODEL
+    assert argv[argv.index("--max-budget-usd") + 1] == worker.CURATE_DEFAULT_MAX_USD
+
+
+def test_a_distillation_job_keeps_its_own_model_and_cap(worker, queue, tmp_path):
+    """Regression guard: adding the curation branch must not move the default
+    distillation onto the more expensive tier."""
+    transcript = _transcript(tmp_path / "t.jsonl", _chain("user", "assistant"))
+    _enqueue(queue, transcript, 2)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
+    assert argv[argv.index("--model") + 1] == worker.DEFAULT_MODEL
+    assert argv[argv.index("--max-budget-usd") + 1] == worker.DEFAULT_MAX_USD
+
+
+def test_an_explicit_curation_model_override_wins(worker, queue, tmp_path, monkeypatch):
+    # The worker reads its own settings from the process environment (the
+    # base_env argument is what it hands the CHILD), so this has to be a real
+    # env var — the same way settings.json delivers it to the hook that spawns
+    # the worker.
+    monkeypatch.setenv("SIS_CURATE_MODEL", "sonnet")
+    _enqueue_curate(queue)
+    _run(worker, queue, _capturing_claude(tmp_path))
+    argv = (tmp_path / "argv.txt").read_text(encoding="utf-8").splitlines()
+    assert argv[argv.index("--model") + 1] == "sonnet"
+
+
+def test_is_curate_job_keys_on_the_trigger(worker):
+    assert worker.is_curate_job({"trigger": worker.CURATE_TRIGGER}) is True
+    assert worker.is_curate_job({"trigger": "signal"}) is False
+    assert worker.is_curate_job({}) is False
